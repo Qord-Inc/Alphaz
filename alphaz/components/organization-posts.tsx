@@ -1,0 +1,367 @@
+"use client"
+
+import React, { useState, useEffect } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { useUser } from '@clerk/nextjs';
+import { useOrganization } from '@/contexts/OrganizationContext';
+import { Heart, MessageCircle, Repeat, Eye, Calendar, ExternalLink, Image, Video, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
+import { formatDistanceToNow } from 'date-fns';
+
+interface Post {
+  id: string;
+  urn: string;
+  author: string;
+  createdAt: number;
+  lastModifiedAt: number;
+  visibility: string;
+  textContent: string;
+  fullText: string;
+  media: Array<{
+    type: 'image' | 'video' | 'article';
+    url?: string;
+    title?: string;
+    description?: string;
+    thumbnail?: string;
+  }>;
+  metrics: {
+    likes: number;
+    comments: number;
+    reposts: number;
+    impressions: number;
+  };
+  lifecycleState: string;
+  publishedAt: number;
+  distributionTarget?: any;
+}
+
+interface PostModalProps {
+  post: Post;
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+const PostModal: React.FC<PostModalProps> = ({ post, isOpen, onClose }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="sticky top-0 bg-white border-b p-4 flex justify-between items-center">
+          <h2 className="text-xl font-semibold">Post Details</h2>
+          <Button variant="ghost" onClick={onClose} className="text-gray-500 hover:text-gray-700">
+            ✕
+          </Button>
+        </div>
+        
+        <div className="p-6">
+          <div className="mb-4 text-sm text-gray-500">
+            {formatDistanceToNow(new Date(post.publishedAt || post.createdAt), { addSuffix: true })}
+          </div>
+
+          <div className="prose max-w-none mb-6">
+            <p className="whitespace-pre-wrap">{post.fullText}</p>
+          </div>
+
+          {post.media.length > 0 && (
+            <div className="space-y-4 mb-6">
+              {post.media.map((item, index) => (
+                <div key={index} className="border rounded-lg overflow-hidden">
+                  {item.type === 'image' && (
+                    <div className="bg-gray-100 p-2">
+                      <Image className="w-5 h-5 inline mr-2" />
+                      <span>Image attachment</span>
+                    </div>
+                  )}
+                  {item.type === 'video' && (
+                    <div className="bg-gray-100 p-2">
+                      <Video className="w-5 h-5 inline mr-2" />
+                      <span>Video attachment</span>
+                    </div>
+                  )}
+                  {item.type === 'article' && (
+                    <div className="p-4">
+                      <FileText className="w-5 h-5 inline mr-2" />
+                      <h3 className="font-medium inline">{item.title}</h3>
+                      {item.description && <p className="text-sm text-gray-600 mt-2">{item.description}</p>}
+                      {item.url && (
+                        <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline mt-2 inline-block">
+                          <ExternalLink className="w-4 h-4 inline mr-1" />
+                          View article
+                        </a>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="grid grid-cols-4 gap-4 p-4 bg-gray-50 rounded-lg">
+            <div className="text-center">
+              <div className="flex items-center justify-center text-gray-600 mb-1">
+                <Heart className="w-5 h-5 mr-1" />
+                <span className="font-semibold">{post.metrics.likes.toLocaleString()}</span>
+              </div>
+              <div className="text-xs text-gray-500">Likes</div>
+            </div>
+            <div className="text-center">
+              <div className="flex items-center justify-center text-gray-600 mb-1">
+                <MessageCircle className="w-5 h-5 mr-1" />
+                <span className="font-semibold">{post.metrics.comments.toLocaleString()}</span>
+              </div>
+              <div className="text-xs text-gray-500">Comments</div>
+            </div>
+            <div className="text-center">
+              <div className="flex items-center justify-center text-gray-600 mb-1">
+                <Repeat className="w-5 h-5 mr-1" />
+                <span className="font-semibold">{post.metrics.reposts.toLocaleString()}</span>
+              </div>
+              <div className="text-xs text-gray-500">Reposts</div>
+            </div>
+            <div className="text-center">
+              <div className="flex items-center justify-center text-gray-600 mb-1">
+                <Eye className="w-5 h-5 mr-1" />
+                <span className="font-semibold">{post.metrics.impressions.toLocaleString()}</span>
+              </div>
+              <div className="text-xs text-gray-500">Impressions</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const OrganizationPosts: React.FC = () => {
+  const { user } = useUser();
+  const { selectedOrganization } = useOrganization();
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedPost, setSelectedPost] = useState<Post | null>(null);
+  const [pagination, setPagination] = useState({
+    start: 0,
+    count: 10,
+    total: 0,
+    hasNext: false,
+    hasPrev: false
+  });
+
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+
+  const fetchPosts = async (start = 0) => {
+    if (!user || !selectedOrganization) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const orgUrn = `urn:li:organization:${selectedOrganization.id}`;
+      const response = await fetch(
+        `${API_BASE_URL}/api/analytics/organization/posts/${user.id}/${encodeURIComponent(orgUrn)}?start=${start}&count=${pagination.count}`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch posts');
+      }
+
+      const data = await response.json();
+      setPosts(data.posts || []);
+      setPagination(prev => ({
+        ...prev,
+        start: data.paging.start || start,
+        total: data.paging.total || 0,
+        hasNext: data.paging.links?.some((link: any) => link.rel === 'next') || false,
+        hasPrev: start > 0
+      }));
+    } catch (err) {
+      console.error('Error fetching posts:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load posts');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedOrganization) {
+      fetchPosts(0);
+    }
+  }, [selectedOrganization]);
+
+  const handlePageChange = (direction: 'next' | 'prev') => {
+    const newStart = direction === 'next' 
+      ? pagination.start + pagination.count
+      : Math.max(0, pagination.start - pagination.count);
+    fetchPosts(newStart);
+  };
+
+  if (!selectedOrganization || !user) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Organization Posts</CardTitle>
+          <CardDescription>Select an organization to view posts</CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
+
+  if (loading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Organization Posts</CardTitle>
+          <CardDescription>Loading posts...</CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Organization Posts</CardTitle>
+          <CardDescription>
+            {error.includes('permission') ? (
+              <div className="text-amber-600">
+                <p className="font-medium">Limited Access</p>
+                <p className="text-sm mt-1">You need administrator or content admin access to view posts for this organization.</p>
+              </div>
+            ) : error.includes('not available') ? (
+              <div className="text-gray-600">
+                <p className="font-medium">Posts Not Available</p>
+                <p className="text-sm mt-1">This organization hasn't published any posts yet or they're not accessible.</p>
+              </div>
+            ) : (
+              <div className="text-red-500">
+                <p className="font-medium">Error Loading Posts</p>
+                <p className="text-sm mt-1">{error}</p>
+              </div>
+            )}
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
+
+  return (
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle>Organization Posts</CardTitle>
+          <CardDescription>
+            Recent posts from {selectedOrganization.name}
+            {pagination.total > 0 && ` (${pagination.total} total)`}
+            {posts.length === 0 && !loading && !error && (
+              <p className="text-xs text-gray-500 mt-2">
+                Note: Post viewing requires admin or content management access to the organization.
+              </p>
+            )}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {posts.length === 0 ? (
+            <p className="text-gray-500 text-center py-8">No posts found for this organization</p>
+          ) : (
+            <div className="space-y-4">
+              {posts.map(post => (
+                <Card 
+                  key={post.id} 
+                  className="cursor-pointer hover:shadow-md transition-shadow"
+                  onClick={() => setSelectedPost(post)}
+                >
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="text-sm text-gray-500">
+                        <Calendar className="w-4 h-4 inline mr-1" />
+                        {formatDistanceToNow(new Date(post.publishedAt || post.createdAt), { addSuffix: true })}
+                      </div>
+                      <div className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">
+                        {post.visibility}
+                      </div>
+                    </div>
+
+                    <p className="text-sm mb-3 line-clamp-3">{post.textContent}</p>
+
+                    {post.media.length > 0 && (
+                      <div className="flex gap-2 mb-3">
+                        {post.media.map((item, index) => (
+                          <div key={index} className="text-xs bg-gray-100 px-2 py-1 rounded flex items-center gap-1">
+                            {item.type === 'image' && <Image className="w-3 h-3" />}
+                            {item.type === 'video' && <Video className="w-3 h-3" />}
+                            {item.type === 'article' && <FileText className="w-3 h-3" />}
+                            {item.type}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-4 text-sm text-gray-600">
+                      <span className="flex items-center gap-1">
+                        <Heart className="w-4 h-4" />
+                        {post.metrics.likes.toLocaleString()}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <MessageCircle className="w-4 h-4" />
+                        {post.metrics.comments.toLocaleString()}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Repeat className="w-4 h-4" />
+                        {post.metrics.reposts.toLocaleString()}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Eye className="w-4 h-4" />
+                        {post.metrics.impressions.toLocaleString()}
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+
+              {(pagination.hasNext || pagination.hasPrev) && (
+                <div className="flex justify-between items-center pt-4">
+                  <Button
+                    variant="outline"
+                    onClick={() => handlePageChange('prev')}
+                    disabled={!pagination.hasPrev}
+                  >
+                    <ChevronLeft className="w-4 h-4 mr-1" />
+                    Previous
+                  </Button>
+                  
+                  <span className="text-sm text-gray-600">
+                    Showing {pagination.start + 1} - {Math.min(pagination.start + pagination.count, pagination.total)} of {pagination.total}
+                  </span>
+
+                  <Button
+                    variant="outline"
+                    onClick={() => handlePageChange('next')}
+                    disabled={!pagination.hasNext}
+                  >
+                    Next
+                    <ChevronRight className="w-4 h-4 ml-1" />
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {selectedPost && (
+        <PostModal 
+          post={selectedPost} 
+          isOpen={!!selectedPost} 
+          onClose={() => setSelectedPost(null)} 
+        />
+      )}
+    </>
+  );
+};

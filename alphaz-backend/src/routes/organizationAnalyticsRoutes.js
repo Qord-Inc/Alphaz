@@ -11,6 +11,10 @@ const {
   getOrganizationPageStats,
   getOrganizationPageDashboard
 } = require('../controllers/organizationPageAnalyticsController');
+const {
+  getOrganizationPosts,
+  getPostDetails
+} = require('../controllers/organizationPostsController');
 
 // Get organization follower statistics (lifetime or time-bound)
 router.get('/organization/followers/:clerkUserId/:organizationId', getOrganizationFollowerStats);
@@ -32,5 +36,11 @@ router.get('/organization/page-stats/:clerkUserId/:organizationId', getOrganizat
 
 // Get organization page analytics dashboard
 router.get('/organization/page-dashboard/:clerkUserId/:organizationId', getOrganizationPageDashboard);
+
+// Get organization posts
+router.get('/organization/posts/:clerkUserId/:organizationUrn', getOrganizationPosts);
+
+// Get post details
+router.get('/organization/post/:clerkUserId/:postUrn', getPostDetails);
 
 module.exports = router;

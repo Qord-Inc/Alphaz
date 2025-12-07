@@ -11,7 +11,8 @@ const linkedInConfig = {
     'w_organization_social', // For posting on company pages
     'r_organization_social', // For reading organization posts and engagement data
     'r_member_profileAnalytics', // For member follower statistics
-    'r_member_postAnalytics' // For member post analytics
+    'r_member_postAnalytics', // For member post analytics
+    // 'r_organization_social_analytics' // Uncomment this to get detailed post analytics (requires approval)
   ].join(' '),
   authorizationUrl: 'https://www.linkedin.com/oauth/v2/authorization',
   tokenUrl: 'https://www.linkedin.com/oauth/v2/accessToken',

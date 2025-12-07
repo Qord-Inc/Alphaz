@@ -7,6 +7,7 @@ import { Eye, Users, Heart, TrendingUp, MessageCircle, Share2, RefreshCw } from 
 import { SimpleDropdown } from "@/components/ui/simple-dropdown"
 import { useUser } from "@clerk/nextjs"
 import { useOrganization } from "@/contexts/OrganizationContext"
+import { OrganizationPosts } from "./organization-posts"
 
 // Helper functions to decode LinkedIn URNs
 const getIndustryName = (urn: string): string => {
@@ -972,6 +973,13 @@ export function MonitorLayout() {
                 )}
               </div>
               )}
+            </div>
+          )}
+
+          {/* Organization Posts */}
+          {!isPersonalProfile && (
+            <div className="mt-8">
+              <OrganizationPosts />
             </div>
           )}
         </div>
