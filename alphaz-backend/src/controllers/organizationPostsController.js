@@ -69,7 +69,7 @@ const getOrganizationPosts = async (req, res) => {
     const posts = response.data.elements || [];
     
     // Process posts to extract key information
-    const processedPosts = await Promise.all(posts.map(async (post) => {
+    const processedPosts = posts.map(post => {
       console.log('Raw post structure:', JSON.stringify(post, null, 2));
       
       // Extract text content
@@ -156,7 +156,7 @@ const getOrganizationPosts = async (req, res) => {
         publishedAt: post.publishedAt,
         distributionTarget: post.target
       };
-    }));
+    });
 
     // Get pagination info
     const paging = response.data.paging || {};
