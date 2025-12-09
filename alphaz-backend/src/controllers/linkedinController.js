@@ -57,11 +57,11 @@ async function handleLinkedInCallback(req, res) {
     if (linkedInError) {
       console.error('LinkedIn OAuth error:', linkedInError, req.query.error_description);
       const errorMessage = req.query.error_description || 'linkedin_auth_failed';
-      return res.redirect(`${process.env.FRONTEND_URL}/dashboard?error=${encodeURIComponent(errorMessage)}`);
+      return res.redirect(`${process.env.FRONTEND_URL}/?error=${encodeURIComponent(errorMessage)}`);
     }
 
     if (!code || !state) {
-      return res.redirect(`${process.env.FRONTEND_URL}/dashboard?error=missing_params`);
+      return res.redirect(`${process.env.FRONTEND_URL}/?error=missing_params`);
     }
 
     // Verify state token
@@ -69,7 +69,7 @@ async function handleLinkedInCallback(req, res) {
     try {
       stateData = jwt.verify(state, process.env.CLERK_SECRET_KEY);
     } catch (err) {
-      return res.redirect(`${process.env.FRONTEND_URL}/dashboard?error=invalid_state`);
+      return res.redirect(`${process.env.FRONTEND_URL}/?error=invalid_state`);
     }
 
     const { clerkUserId } = stateData;
@@ -99,7 +99,7 @@ async function handleLinkedInCallback(req, res) {
       );
     } catch (tokenError) {
       console.error('Token exchange error:', tokenError.response?.data || tokenError.message);
-      return res.redirect(`${process.env.FRONTEND_URL}/dashboard?error=token_exchange_failed`);
+      return res.redirect(`${process.env.FRONTEND_URL}/?error=token_exchange_failed`);
     }
 
     const { access_token, expires_in } = tokenResponse.data;
@@ -159,7 +159,7 @@ async function handleLinkedInCallback(req, res) {
 
     if (updateError) {
       console.error('Error updating user LinkedIn data:', updateError);
-      return res.redirect(`${process.env.FRONTEND_URL}/dashboard?error=update_failed`);
+      return res.redirect(`${process.env.FRONTEND_URL}/?error=update_failed`);
     }
 
     // Fetch user's company pages
@@ -171,11 +171,11 @@ async function handleLinkedInCallback(req, res) {
     }
 
     // Redirect back to frontend with success
-    res.redirect(`${process.env.FRONTEND_URL}/dashboard?linkedin=connected`);
+    res.redirect(`${process.env.FRONTEND_URL}/?linkedin=connected`);
 
   } catch (error) {
     console.error('LinkedIn callback error:', error);
-    res.redirect(`${process.env.FRONTEND_URL}/dashboard?error=linkedin_callback_failed`);
+    res.redirect(`${process.env.FRONTEND_URL}/?error=linkedin_callback_failed`);
   }
 }
 
