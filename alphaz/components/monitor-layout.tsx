@@ -672,7 +672,7 @@ export function MonitorLayout() {
           )}
 
           {/* Charts - Only for Personal Profiles */}
-          {isPersonalProfile && (
+          {/* {isPersonalProfile && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <ChartCard title="Followers Growth">
                 <LineChart data={followersGrowthData} />
@@ -682,7 +682,7 @@ export function MonitorLayout() {
                 <BarChart data={engagementData} />
               </ChartCard>
             </div>
-          )}
+          )} */}
           
           {/* Demographics - Only for Organizations */}
           {!isPersonalProfile && dashboard?.demographics && (
