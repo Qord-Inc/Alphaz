@@ -9,6 +9,7 @@ import { useUser } from "@clerk/nextjs"
 import { useOrganization } from "@/contexts/OrganizationContext"
 import { OrganizationPosts } from "./organization-posts"
 import posthog from 'posthog-js'
+import { syncToVectorDB, shouldSyncToVectorDB } from "@/lib/syncToVectorDB"
 
 // Helper functions to decode LinkedIn URNs
 const getIndustryName = (urn: string): string => {
@@ -204,6 +205,7 @@ export function MonitorLayout() {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [lastCachedTime, setLastCachedTime] = useState<Date | null>(null)
   const [selectedRange, setSelectedRange] = useState("30d")
+  const [postsData, setPostsData] = useState<any[]>([])
   
   // Sample data for charts (will be replaced with real data later)
   const followersGrowthData = [3500, 3600, 3650, 3700, 3800, 3900]
@@ -310,6 +312,22 @@ export function MonitorLayout() {
         localStorage.setItem(cacheTimestampKey, timestamp.toString())
         setLastCachedTime(new Date(timestamp))
         
+        // Auto-sync to Vector DB for organizations (lifetime data only)
+        if (!isPersonalProfile && selectedOrganization?.id && selectedOrganization?.name) {
+          if (shouldSyncToVectorDB(selectedOrganization.id)) {
+            // Run in background, don't block UI - pass analytics and posts data to avoid duplicate API calls
+            syncToVectorDB({
+              clerkUserId: user.id,
+              organizationId: selectedOrganization.id,
+              organizationName: selectedOrganization.name,
+              analyticsData: data, // Pass the fetched analytics data
+              postsData: postsData.length > 0 ? postsData : undefined // Pass posts if available
+            }).catch(err => {
+              console.error('Background Vector DB sync failed:', err)
+            })
+          }
+        }
+        
         // Also clean up old cache entries for other periods
         const periods = ['7d', '30d', '90d', '1y']
         periods.forEach(period => {
@@ -409,6 +427,22 @@ export function MonitorLayout() {
       localStorage.setItem(cacheKey, JSON.stringify(data))
       localStorage.setItem(cacheTimestampKey, timestamp.toString())
       setLastCachedTime(new Date(timestamp))
+      
+      // Auto-sync to Vector DB for organizations (on manual refresh)
+      if (!isPersonalProfile && selectedOrganization?.id && selectedOrganization?.name) {
+        if (shouldSyncToVectorDB(selectedOrganization.id)) {
+          // Run in background, don't block UI - pass analytics and posts data to avoid duplicate API calls
+          syncToVectorDB({
+            clerkUserId: user.id,
+            organizationId: selectedOrganization.id,
+            organizationName: selectedOrganization.name,
+            analyticsData: data, // Pass the fetched analytics data
+            postsData: postsData.length > 0 ? postsData : undefined // Pass posts if available
+          }).catch(err => {
+            console.error('Background Vector DB sync failed:', err)
+          })
+        }
+      }
       
       setDashboard(data)
       setError(null)
@@ -986,7 +1020,10 @@ export function MonitorLayout() {
           {/* Organization Posts */}
           {!isPersonalProfile && (
             <div className="mt-8">
-              <OrganizationPosts />
+              <OrganizationPosts 
+                onRefresh={isRefreshing} 
+                onPostsFetched={setPostsData}
+              />
             </div>
           )}
         </div>
