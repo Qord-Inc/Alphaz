@@ -133,7 +133,12 @@ const PostModal: React.FC<PostModalProps> = ({ post, isOpen, onClose }) => {
   );
 };
 
-export const OrganizationPosts: React.FC = () => {
+interface OrganizationPostsProps {
+  onRefresh?: boolean;
+  onPostsFetched?: (posts: any[]) => void;
+}
+
+export const OrganizationPosts: React.FC<OrganizationPostsProps> = ({ onRefresh, onPostsFetched }) => {
   const { user } = useUser();
   const { selectedOrganization } = useOrganization();
   const [posts, setPosts] = useState<Post[]>([]);
@@ -150,7 +155,7 @@ export const OrganizationPosts: React.FC = () => {
 
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
-  const fetchPosts = async (start = 0) => {
+  const fetchPosts = async (start = 0, forceRefresh = false) => {
     if (!user || !selectedOrganization) return;
 
     setLoading(true);
@@ -158,6 +163,39 @@ export const OrganizationPosts: React.FC = () => {
 
     try {
       const orgUrn = `urn:li:organization:${selectedOrganization.id}`;
+      const cacheKey = `posts_org_${selectedOrganization.id}`;
+      const cacheTimestampKey = `${cacheKey}_timestamp`;
+      
+      // Check localStorage for cached data (only for first page)
+      if (start === 0 && !forceRefresh) {
+        const cachedData = localStorage.getItem(cacheKey);
+        const cacheTimestamp = localStorage.getItem(cacheTimestampKey);
+        
+        // Check if cache is valid (less than 24 hours old)
+        const twentyFourHours = 24 * 60 * 60 * 1000;
+        const isCacheValid = cachedData && cacheTimestamp && 
+          (Date.now() - parseInt(cacheTimestamp)) < twentyFourHours;
+        
+        if (isCacheValid) {
+          console.log('Using cached posts data');
+          const data = JSON.parse(cachedData);
+          setPosts(data.posts || []);
+          setPagination(prev => ({
+            ...prev,
+            start: data.paging.start || start,
+            total: data.paging.total || 0,
+            hasNext: data.paging.links?.some((link: any) => link.rel === 'next') || false,
+            hasPrev: start > 0
+          }));
+          if (onPostsFetched) {
+            onPostsFetched(data.posts || []);
+          }
+          setLoading(false);
+          return;
+        }
+      }
+      
+      console.log(`Fetching fresh posts data${forceRefresh ? ' (forced refresh)' : ''}`);
       const response = await fetch(
         `${API_BASE_URL}/api/analytics/organization/posts/${user.id}/${encodeURIComponent(orgUrn)}?start=${start}&count=${pagination.count}`,
         {
@@ -172,6 +210,14 @@ export const OrganizationPosts: React.FC = () => {
       }
 
       const data = await response.json();
+      
+      // Cache the data (only for first page)
+      if (start === 0) {
+        const timestamp = Date.now();
+        localStorage.setItem(cacheKey, JSON.stringify(data));
+        localStorage.setItem(cacheTimestampKey, timestamp.toString());
+      }
+      
       setPosts(data.posts || []);
       setPagination(prev => ({
         ...prev,
@@ -180,6 +226,11 @@ export const OrganizationPosts: React.FC = () => {
         hasNext: data.paging.links?.some((link: any) => link.rel === 'next') || false,
         hasPrev: start > 0
       }));
+      
+      // Notify parent component of fetched posts
+      if (onPostsFetched && start === 0) {
+        onPostsFetched(data.posts || []);
+      }
     } catch (err) {
       console.error('Error fetching posts:', err);
       setError(err instanceof Error ? err.message : 'Failed to load posts');
@@ -193,6 +244,13 @@ export const OrganizationPosts: React.FC = () => {
       fetchPosts(0);
     }
   }, [selectedOrganization]);
+  
+  // Handle refresh trigger from parent
+  useEffect(() => {
+    if (onRefresh && selectedOrganization) {
+      fetchPosts(0, true); // Force refresh
+    }
+  }, [onRefresh]);
 
   const handlePageChange = (direction: 'next' | 'prev') => {
     const newStart = direction === 'next' 

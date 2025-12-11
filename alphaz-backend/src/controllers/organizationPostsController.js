@@ -70,7 +70,7 @@ const getOrganizationPosts = async (req, res) => {
     
     // Process posts to extract key information
     const processedPosts = posts.map(post => {
-      console.log('Raw post structure:', JSON.stringify(post, null, 2));
+     // console.log('Raw post structure:', JSON.stringify(post, null, 2));
       
       // Extract text content
       let textContent = '';
