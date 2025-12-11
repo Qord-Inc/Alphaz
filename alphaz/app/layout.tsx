@@ -4,6 +4,9 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { UserSync } from "@/components/user-sync";
 import { OrganizationProvider } from "@/contexts/OrganizationContext";
 import "./globals.css";
+import { PostHogProvider } from '@/contexts/PostHogContext';
+
+
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -31,11 +34,13 @@ export default function RootLayout({
         <body
           className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         >
+          <PostHogProvider>
           <UserSync>
             <OrganizationProvider>
               {children}
             </OrganizationProvider>
           </UserSync>
+          </PostHogProvider>
         </body>
       </html>
     </ClerkProvider>
