@@ -1,11 +1,13 @@
 import { openai } from '@ai-sdk/openai';
-import { generateText } from 'ai';
+import { streamText } from 'ai';
 
 /**
  * POST /api/chat
  * 
  * Handles AI chat requests with organization analytics context
  * Uses embedded data from database to provide relevant insights
+ * 
+ * Returns streaming response that updates in real-time
  */
 export async function POST(request: Request) {
   try {
@@ -65,33 +67,24 @@ export async function POST(request: Request) {
       }
     }
 
-    console.log(`\n🤖 [OPENAI] Calling GPT-4o-mini`);
+    console.log(`\n🤖 [OPENAI] Calling GPT-4o-mini with streaming`);
     console.log(`   Model: gpt-4o-mini`);
     console.log(`   Temperature: 0.7`);
+    console.log(`   Stream: Enabled (real-time response)`);
 
-    // Call OpenAI to generate response
-    const response = await generateText({
+    // Call OpenAI with streaming enabled
+    const stream = streamText({
       model: openai('gpt-4o-mini'), // Fast, cost-effective model
       system: systemPrompt,
       messages: messages,
       temperature: 0.7, // Balanced creativity and consistency
     });
 
-    console.log(`\n✅ [OPENAI RESPONSE]`);
-    console.log(`   Response length: ${response.text.length} chars`);
-    console.log(`   First 100 chars: ${response.text.substring(0, 100)}...`);
+    console.log(`\n⏳ [STREAMING STARTED]`);
+    console.log(`   Sending streamed response to client...`);
 
-    // Return the AI response
-    return new Response(
-      JSON.stringify({
-        success: true,
-        message: response.text,
-      }),
-      {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    // Return the streaming response to the client
+    return (await stream).toTextStreamResponse();
 
   } catch (error: any) {
     console.error('[API/CHAT] Error:', error);

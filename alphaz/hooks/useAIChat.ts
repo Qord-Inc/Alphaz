@@ -110,8 +110,9 @@ export function useAIChat({
         console.log(`      - Organization ID: ${organizationId}`);
         console.log(`      - User ID: ${clerkUserId}`);
         console.log(`      - Context data included: ${contextToSend ? 'YES ✅' : 'NO ❌'}`);
+        console.log(`   Stream enabled: YES ✅ (real-time response)`);
 
-        // Call the API
+        // Call the API with streaming
         const response = await fetch('/api/chat', {
           method: 'POST',
           headers: {
@@ -127,37 +128,72 @@ export function useAIChat({
 
         // Handle API errors
         if (!response.ok) {
-          const errorData = await response.json();
+          const errorData = await response.json().catch(() => ({}));
           throw new Error(errorData.error || `API error: ${response.status}`);
         }
 
-        // Parse response
-        const data = await response.json();
+        console.log(`\n⏳ [STREAMING RESPONSE] Stream started`);
+        console.log(`   Status: ${response.status}`);
+        console.log(`   Content-Type: ${response.headers.get('content-type')}`);
 
-        if (!data.success || !data.message) {
-          throw new Error('Invalid response from API');
-        }
-
-        console.log(`\n📩 [RESPONSE RECEIVED]`);
-        console.log(`   Success: ${data.success}`);
-        console.log(`   Message length: ${data.message.length} chars`);
-        console.log(`   Message preview: ${data.message.substring(0, 100)}...`);
-
-        // Create assistant message
+        // Create assistant message object first (empty, will be filled as stream arrives)
+        const assistantMessageId = `assistant-${Date.now()}`;
         const assistantMessage: ChatMessage = {
-          id: `assistant-${Date.now()}`,
+          id: assistantMessageId,
           role: 'assistant',
-          content: data.message,
+          content: '',
           timestamp: new Date(),
         };
 
-        // Add assistant message to chat
+        // Add empty assistant message to chat
         setMessages((prev) => [...prev, assistantMessage]);
+
+        // Process the streaming response
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
+        let fullText = '';
+        let chunkCount = 0;
+
+        if (!reader) {
+          throw new Error('Response body is not readable');
+        }
+
+        console.log(`� [READING STREAM] Starting to receive chunks...`);
+
+        while (true) {
+          const { done, value } = await reader.read();
+
+          if (done) {
+            console.log(`\n✅ [STREAM COMPLETE]`);
+            console.log(`   Total chunks received: ${chunkCount}`);
+            console.log(`   Final message length: ${fullText.length} chars`);
+            break;
+          }
+
+          // Decode chunk
+          const chunk = decoder.decode(value, { stream: true });
+          fullText += chunk;
+          chunkCount++;
+
+          // Log progress every 5 chunks
+          if (chunkCount % 5 === 0) {
+            console.log(`   Received ${chunkCount} chunks (${fullText.length} chars so far)...`);
+          }
+
+          // Update the message in real-time
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMessageId
+                ? { ...msg, content: fullText }
+                : msg
+            )
+          );
+        }
 
         console.log(`\n✅ [CHAT COMPLETE]`);
         console.log(`   Total messages: ${messages.length + 2} (including user and AI)`);
         console.log(`   User message length: ${userMessage.length} chars`);
-        console.log(`   AI response length: ${data.message.length} chars`);
+        console.log(`   AI response length: ${fullText.length} chars`);
       } catch (err: any) {
         const errorMessage = err.message || 'Failed to send message';
         console.error('[CHAT] Error:', errorMessage);
