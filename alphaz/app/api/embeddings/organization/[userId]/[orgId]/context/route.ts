@@ -17,8 +17,11 @@ export async function GET(
     console.log(`   User ID: ${userId}`);
     console.log(`   Org ID: ${orgId}`);
 
-    const backendUrl = `http://localhost:5000/api/embeddings/organization/${userId}/${orgId}/context`;
+    // Get backend URL from environment or use default for development
+    const backendBaseUrl = process.env.NEXT_PUBLIC_API_URL || process.env.API_URL || 'http://localhost:5000';
+    const backendUrl = `${backendBaseUrl}/api/embeddings/organization/${userId}/${orgId}/context`;
     console.log(`   Backend URL: ${backendUrl}`);
+    console.log(`   Environment: ${process.env.NODE_ENV}`);
 
     // Call the backend API
     console.log(`📡 [CALLING BACKEND] Starting request...`);
@@ -62,22 +65,26 @@ export async function GET(
   } catch (error: any) {
     console.error(`\n❌ [EMBEDDINGS API ERROR]`);
     console.error(`   Error: ${error.message}`);
+    console.error(`   Stack: ${error.stack}`);
 
     // Check if it's a connection error (backend not running)
     if (error.message.includes('ECONNREFUSED') || error.message.includes('Failed to fetch')) {
-      console.error(`   💡 TIP: Is the backend running on port 5000?`);
-      console.error(`   💡 TIP: Run: npm start (in alphaz-backend folder)`);
+      console.error(`   💡 Development: Is the backend running on port 5000?`);
+      console.error(`   💡 Production: Check NEXT_PUBLIC_API_URL or API_URL environment variable`);
     }
+
+    const errorMessage = error.message || 'Failed to fetch embeddings from backend';
+    const status = error.status || 500;
 
     return NextResponse.json(
       {
-        error: error.message || 'Failed to fetch embeddings from backend',
+        error: errorMessage,
         details:
           process.env.NODE_ENV === 'development'
-            ? error.message
-            : 'Internal server error',
+            ? errorMessage
+            : 'Failed to fetch organization context',
       },
-      { status: 500 }
+      { status }
     );
   }
 }
