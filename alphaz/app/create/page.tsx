@@ -1,10 +1,13 @@
 "use client"
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useUser as useClerkUser } from "@clerk/nextjs";
 import { AppLayout } from "@/components/app-layout";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useOrganization } from "@/contexts/OrganizationContext";
+import { useAIChat } from "@/hooks/useAIChat";
+import { useUser } from "@/hooks/useUser";
 import { 
   Paperclip, 
   Mic, 
@@ -16,25 +19,51 @@ import {
   X,
   Building2,
   User,
-  Lock
+  Lock,
+  Copy,
+  Trash2,
+  Loader as LoaderIcon
 } from "lucide-react";
 
-// Mock chat threads data
-const mockThreads = [
-  { id: "1", title: "LinkedIn post about AI trends", date: "Today" },
-  { id: "2", title: "Company announcement draft", date: "Yesterday" },
-  { id: "3", title: "Product launch content", date: "Dec 5" },
-  { id: "4", title: "Team hiring post", date: "Dec 3" },
-];
-
 export default function Create() {
-  const [showThreadsPanel, setShowThreadsPanel] = useState(false);
-  const [selectedThread, setSelectedThread] = useState<string | null>(null);
-  const [inputValue, setInputValue] = useState("");
+  // Context and hooks
   const { selectedOrganization, isPersonalProfile } = useOrganization();
+  const { user } = useUser();
+  const { user: clerkUser } = useClerkUser();
+  
+  // UI state
+  const [showThreadsPanel, setShowThreadsPanel] = useState(false);
+  const [inputValue, setInputValue] = useState("");
+  
+  // AI chat state
+  const { messages, isLoading, error, sendMessage, clearChat } = useAIChat({
+    organizationId: selectedOrganization?.id || "",
+    clerkUserId: clerkUser?.id || "",
+  });
 
   // Check if user is on personal profile (not organization)
   const isBlocked = isPersonalProfile;
+  const isChatActive = messages.length > 0;
+
+  /**
+   * Handle sending a message
+   */
+  const handleSendMessage = async () => {
+    if (!inputValue.trim() || isLoading) return;
+
+    await sendMessage(inputValue);
+    setInputValue(""); // Clear input after sending
+  };
+
+  /**
+   * Handle keyboard shortcut (Enter to send)
+   */
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey && !isLoading) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
 
   return (
     <AppLayout>
@@ -60,7 +89,7 @@ export default function Create() {
               <Button 
                 variant="ghost" 
                 size="icon"
-                onClick={() => setSelectedThread(null)}
+                onClick={clearChat}
                 title="New Chat"
               >
                 <Plus className="h-5 w-5" />
@@ -98,56 +127,185 @@ export default function Create() {
             </main>
           ) : (
             /* Chat Interface */
-            <main className="flex-1 flex flex-col items-center justify-center px-6 pb-32">
-              {/* Main Heading */}
-              <div className="text-center mb-12">
-                <h1 className="text-4xl font-semibold text-gray-800 mb-2">
-                  What are you writing today?
-                </h1>
-                <p className="text-gray-500">
-                  Create content for <span className="font-medium text-blue-600">{selectedOrganization?.name}</span>
-                </p>
-              </div>
-              
-              {/* Post Input Area */}
-              <div className="w-full max-w-4xl">
-                <div className="bg-white rounded-2xl shadow-lg hover:shadow-xl transition-shadow border border-gray-200 p-6">
-                  <Textarea
-                    placeholder="Describe your LinkedIn post idea..."
-                    value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
-                    className="min-h-[40px] border-0 text-base placeholder:text-gray-400 resize-none focus-visible:ring-0 focus-visible:ring-offset-0 p-0"
-                  />
-                  
-                  {/* Action Bar */}
-                  <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-100">
-                    <div className="flex items-center space-x-4">
-                      <Button variant="ghost" size="sm" className="text-gray-500 hover:text-gray-700">
-                        <Paperclip className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="sm" className="text-gray-500 hover:text-gray-700">
-                        <Mic className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="sm" className="text-gray-500 hover:text-gray-700">
-                        <BarChart3 className="h-4 w-4" />
+            <main className="flex-1 flex flex-col overflow-hidden">
+              {/* Chat Messages Area */}
+              {!isChatActive ? (
+                // Initial state - before user sends first message
+                <div className="flex-1 flex flex-col items-center justify-center px-6 pb-32">
+                  <div className="text-center max-w-2xl">
+                    <h1 className="text-4xl font-semibold text-gray-800 mb-2">
+                      What are you writing today?
+                    </h1>
+                    <p className="text-gray-500 mb-8">
+                      Create content for <span className="font-medium text-blue-600">{selectedOrganization?.name}</span>
+                    </p>
+                    
+                    {/* Quick prompts */}
+                    <div className="space-y-3">
+                      <p className="text-sm text-gray-400 mb-4">Try asking:</p>
+                      <div className="flex flex-wrap gap-2 justify-center">
+                        <button
+                          onClick={() => {
+                            setInputValue("Create a post about our latest product launch");
+                            setTimeout(() => {
+                              const textarea = document.querySelector('textarea');
+                              textarea?.focus();
+                            }, 0);
+                          }}
+                          className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-sm text-gray-700 rounded-full transition"
+                        >
+                          Product Launch
+                        </button>
+                        <button
+                          onClick={() => {
+                            setInputValue("Write about company culture and team growth");
+                            setTimeout(() => {
+                              const textarea = document.querySelector('textarea');
+                              textarea?.focus();
+                            }, 0);
+                          }}
+                          className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-sm text-gray-700 rounded-full transition"
+                        >
+                          Team Spotlight
+                        </button>
+                        <button
+                          onClick={() => {
+                            setInputValue("Share an industry insight or thought leadership idea");
+                            setTimeout(() => {
+                              const textarea = document.querySelector('textarea');
+                              textarea?.focus();
+                            }, 0);
+                          }}
+                          className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-sm text-gray-700 rounded-full transition"
+                        >
+                          Industry Insight
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                // Chat messages area - when chat is active
+                <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                  {messages.map((message) => (
+                    <div
+                      key={message.id}
+                      className={`flex ${
+                        message.role === "user" ? "justify-end" : "justify-start"
+                      }`}
+                    >
+                      <div
+                        className={`max-w-2xl rounded-lg px-4 py-3 ${
+                          message.role === "user"
+                            ? "bg-blue-600 text-white"
+                            : "bg-gray-100 text-gray-800"
+                        }`}
+                      >
+                        <p className="text-sm whitespace-pre-wrap break-words">
+                          {message.content}
+                        </p>
+                        
+                        {/* Message actions */}
+                        {message.role === "assistant" && (
+                          <div className="flex gap-2 mt-3 pt-2 border-t border-gray-300">
+                            <button
+                              onClick={() => {
+                                navigator.clipboard.writeText(message.content);
+                              }}
+                              className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
+                              title="Copy message"
+                            >
+                              <Copy className="h-3 w-3" />
+                              Copy
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Loading indicator */}
+                  {isLoading && (
+                    <div className="flex justify-start">
+                      <div className="bg-gray-100 text-gray-800 rounded-lg px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <LoaderIcon className="h-4 w-4 animate-spin" />
+                          <span className="text-sm text-gray-600">Thinking...</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Error message */}
+                  {error && (
+                    <div className="flex justify-start">
+                      <div className="bg-red-50 text-red-700 rounded-lg px-4 py-3 border border-red-200">
+                        <p className="text-sm">{error}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Input Area */}
+              <div className="border-t border-gray-200 bg-white p-4">
+                <div className="max-w-4xl mx-auto">
+                  <div className="bg-white rounded-xl border border-gray-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-50 transition">
+                    <Textarea
+                      placeholder="Ask me to write a post, refine content, or get ideas..."
+                      value={inputValue}
+                      onChange={(e) => setInputValue(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      className="min-h-[50px] border-0 text-base placeholder:text-gray-400 resize-none focus-visible:ring-0 focus-visible:ring-offset-0 p-4"
+                      disabled={isLoading}
+                    />
+
+                    {/* Action Bar */}
+                    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-b-lg border-t border-gray-100">
+                      <div className="flex items-center gap-1">
+                        {isChatActive && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={clearChat}
+                            className="text-gray-500 hover:text-gray-700 text-xs"
+                            title="Clear chat"
+                          >
+                            <Trash2 className="h-4 w-4 mr-1" />
+                            Clear
+                          </Button>
+                        )}
+                      </div>
+
+                      <Button
+                        size="sm"
+                        onClick={handleSendMessage}
+                        disabled={!inputValue.trim() || isLoading}
+                        className="bg-blue-600 hover:bg-blue-700 text-white rounded-full px-4 flex items-center gap-2"
+                      >
+                        {isLoading ? (
+                          <LoaderIcon className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Send className="h-4 w-4" />
+                        )}
+                        Send
                       </Button>
                     </div>
-                    
-                    <Button 
-                      size="sm" 
-                      className="bg-orange-500 hover:bg-orange-600 text-white rounded-full px-4"
-                      disabled={!inputValue.trim()}
-                    >
-                      <Send className="h-4 w-4" />
-                    </Button>
                   </div>
+
+                  {/* Keyboard hint */}
+                  {!isChatActive && (
+                    <p className="text-xs text-gray-400 mt-2 text-center">
+                      💡 Tip: Use Shift+Enter for new lines
+                    </p>
+                  )}
                 </div>
               </div>
             </main>
           )}
         </div>
 
-        {/* Threads Panel (Slide-out) */}
+        {/* Chat Info Panel (Slide-out) */}
         <div 
           className={`absolute right-0 top-0 h-full w-80 bg-white border-l border-gray-200 shadow-lg transform transition-transform duration-300 ease-in-out z-10 ${
             showThreadsPanel ? 'translate-x-0' : 'translate-x-full'
@@ -155,61 +313,57 @@ export default function Create() {
         >
           {/* Panel Header */}
           <div className="flex items-center justify-between p-4 border-b border-gray-100">
-            <h3 className="font-semibold text-gray-800">Chat History</h3>
-            <div className="flex items-center gap-2">
-              <Button 
-                variant="ghost" 
-                size="icon"
-                onClick={() => setSelectedThread(null)}
-                title="New Chat"
-                className="h-8 w-8"
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
-              <Button 
-                variant="ghost" 
-                size="icon"
-                onClick={() => setShowThreadsPanel(false)}
-                className="h-8 w-8"
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
+            <h3 className="font-semibold text-gray-800">Chat Info</h3>
+            <Button 
+              variant="ghost" 
+              size="icon"
+              onClick={() => setShowThreadsPanel(false)}
+              className="h-8 w-8"
+            >
+              <X className="h-4 w-4" />
+            </Button>
           </div>
 
-          {/* Threads List */}
-          <div className="flex-1 overflow-y-auto p-2">
-            {mockThreads.map((thread) => (
-              <button
-                key={thread.id}
-                onClick={() => {
-                  setSelectedThread(thread.id);
-                  setShowThreadsPanel(false);
-                }}
-                className={`w-full text-left p-3 rounded-lg mb-1 hover:bg-gray-50 transition-colors ${
-                  selectedThread === thread.id ? 'bg-gray-100' : ''
-                }`}
-              >
-                <div className="flex items-start gap-3">
-                  <MessageSquare className="h-4 w-4 text-gray-400 mt-0.5 flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-800 truncate">
-                      {thread.title}
-                    </p>
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      {thread.date}
-                    </p>
-                  </div>
-                </div>
-              </button>
-            ))}
+          {/* Chat Info Content */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div>
+              <h4 className="text-sm font-semibold text-gray-800 mb-2">Organization</h4>
+              <p className="text-sm text-gray-600">{selectedOrganization?.name}</p>
+            </div>
+
+            <div>
+              <h4 className="text-sm font-semibold text-gray-800 mb-2">Messages</h4>
+              <p className="text-sm text-gray-600">{messages.length} messages in this chat</p>
+            </div>
+
+            <div>
+              <h4 className="text-sm font-semibold text-gray-800 mb-2">Tips</h4>
+              <ul className="text-xs text-gray-600 space-y-1 list-disc list-inside">
+                <li>Describe what you want to post</li>
+                <li>Ask for refinements or variations</li>
+                <li>Request specific tone or style</li>
+                <li>Get suggestions based on your audience</li>
+              </ul>
+            </div>
+
+            <div>
+              <h4 className="text-sm font-semibold text-gray-800 mb-2">Context Used</h4>
+              <p className="text-xs text-gray-600">
+                AI uses your organization's analytics, past posts, and audience demographics to create relevant content.
+              </p>
+            </div>
           </div>
 
           {/* Panel Footer */}
           <div className="p-4 border-t border-gray-100">
-            <p className="text-xs text-gray-400 text-center">
-              {mockThreads.length} conversations
-            </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={clearChat}
+              className="w-full text-sm text-red-600 hover:text-red-700"
+            >
+              Clear Chat
+            </Button>
           </div>
         </div>
 

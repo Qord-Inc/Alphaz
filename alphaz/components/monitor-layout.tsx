@@ -8,7 +8,6 @@ import { SimpleDropdown } from "@/components/ui/simple-dropdown"
 import { useUser } from "@clerk/nextjs"
 import { useOrganization } from "@/contexts/OrganizationContext"
 import { OrganizationPosts } from "./organization-posts"
-import posthog from 'posthog-js'
 import { syncToVectorDB, shouldSyncToVectorDB } from "@/lib/syncToVectorDB"
 
 // Helper functions to decode LinkedIn URNs
@@ -362,12 +361,6 @@ export function MonitorLayout() {
     if (!user?.id || isRefreshing) return
     
     setIsRefreshing(true)
-    
-    posthog.capture('analytics_refreshed', {
-      period: selectedRange,
-      isPersonalProfile: isPersonalProfile,
-      organizationId: selectedOrganization?.id
-    })
     
     // Clear cache for current period
     const cacheKey = isPersonalProfile 
