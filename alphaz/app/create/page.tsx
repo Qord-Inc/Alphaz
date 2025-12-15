@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { useAIChat } from "@/hooks/useAIChat";
 import { useUser } from "@/hooks/useUser";
+import { MarkdownMessage } from "@/components/markdown-message";
 import { 
   Paperclip, 
   Mic, 
@@ -201,9 +202,13 @@ export default function Create() {
                             : "bg-gray-100 text-gray-800"
                         }`}
                       >
-                        <p className="text-sm whitespace-pre-wrap break-words">
-                          {message.content}
-                        </p>
+                        <div className="text-sm">
+                          {message.role === "assistant" ? (
+                            <MarkdownMessage content={message.content} />
+                          ) : (
+                            <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                          )}
+                        </div>
                         
                         {/* Message actions */}
                         {message.role === "assistant" && (

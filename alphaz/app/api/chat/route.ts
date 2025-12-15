@@ -1,5 +1,36 @@
 import { openai } from '@ai-sdk/openai';
-import { streamText } from 'ai';
+import { streamText, generateObject } from 'ai';
+import { z } from 'zod';
+
+// Intent classification schema
+const IntentSchema = z.object({
+  intent: z.enum(['edit', 'ideate', 'draft', 'feedback']).describe(
+    'edit: User wants to modify/refine existing content. ' +
+    'ideate: User wants to brainstorm ideas/concepts. ' +
+    'draft: User wants to create new content from scratch. ' +
+    'feedback: User wants critique/analysis of content.'
+  ),
+});
+
+/**
+ * Detect user intent using OpenAI function calling
+ * Returns one of: edit, ideate, draft, feedback
+ */
+async function detectIntent(userMessage: string): Promise<string> {
+  try {
+    const result = await generateObject({
+      model: openai('gpt-5-nano'), // Fast, cheap for classification
+      schema: IntentSchema,
+      prompt: `Classify the user's intent in one word. User message: "${userMessage}"`,
+      temperature: 0.1, // Low temperature for consistent classification
+    });
+    
+    return result.object.intent;
+  } catch (error) {
+    console.error('Intent detection failed:', error);
+    return 'draft'; // Default fallback
+  }
+}
 
 /**
  * POST /api/chat
@@ -32,6 +63,18 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+
+    // Get the latest user message for intent detection
+    const latestUserMessage = messages.filter(m => m.role === 'user').pop()?.content || '';
+    
+    // Detect intent (fast: 0.1-0.5s)
+    const startTime = Date.now();
+    const intent = await detectIntent(latestUserMessage);
+    const intentTime = Date.now() - startTime;
+    
+    console.log(`\n🎯 [INTENT DETECTED] ${intent.toUpperCase()}`);
+    console.log(`   Response time: ${intentTime}ms`);
+    console.log(`   User message: "${latestUserMessage.substring(0, 100)}${latestUserMessage.length > 100 ? '...' : ''}"`);
 
     // Build system prompt with organization context
     const systemPrompt = buildSystemPrompt(contextData);
@@ -67,14 +110,14 @@ export async function POST(request: Request) {
       }
     }
 
-    console.log(`\n🤖 [OPENAI] Calling GPT-4o-mini with streaming`);
-    console.log(`   Model: gpt-4o-mini`);
+    console.log(`\n🤖 [OPENAI] Calling GPT-5.1 with streaming`);
+    console.log(`   Model: gpt-5.1`);
     console.log(`   Temperature: 0.7`);
     console.log(`   Stream: Enabled (real-time response)`);
 
     // Call OpenAI with streaming enabled
     const stream = streamText({
-      model: openai('gpt-4o-mini'), // Fast, cost-effective model
+      model: openai('gpt-5.1'), // Fast, cost-effective model
       system: systemPrompt,
       messages: messages,
       temperature: 0.7, // Balanced creativity and consistency
