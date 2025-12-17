@@ -10,6 +10,8 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  intent?: 'edit' | 'ideate' | 'draft' | 'feedback';
+  draftContent?: string; // Clean post content for draft intent
 }
 
 export interface ContextData {
@@ -44,6 +46,7 @@ export function useAIChat({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [currentIntent, setCurrentIntent] = useState<'edit' | 'ideate' | 'draft' | 'feedback' | null>(null);
 
   /**
    * Send a message to the AI
@@ -132,9 +135,16 @@ export function useAIChat({
           throw new Error(errorData.error || `API error: ${response.status}`);
         }
 
-        console.log(`\n⏳ [STREAMING RESPONSE] Stream started`);
+        console.log(`\n📬 [RESPONSE RECEIVED]`);
         console.log(`   Status: ${response.status}`);
         console.log(`   Content-Type: ${response.headers.get('content-type')}`);
+        
+        // Extract intent from response headers
+        const detectedIntent = response.headers.get('X-Intent') as 'edit' | 'ideate' | 'draft' | 'feedback' | null;
+        if (detectedIntent) {
+          console.log(`   🎯 Intent: ${detectedIntent.toUpperCase()}`);
+          setCurrentIntent(detectedIntent);
+        }
 
         // Create assistant message object first (empty, will be filled as stream arrives)
         const assistantMessageId = `assistant-${Date.now()}`;
@@ -143,6 +153,7 @@ export function useAIChat({
           role: 'assistant',
           content: '',
           timestamp: new Date(),
+          intent: detectedIntent || undefined,
         };
 
         // Add empty assistant message to chat
@@ -320,6 +331,7 @@ export function useAIChat({
     messages,
     isLoading,
     error,
+    currentIntent,
 
     // Actions
     sendMessage,

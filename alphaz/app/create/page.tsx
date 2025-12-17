@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback, memo, useRef } from "react";
 import { useUser as useClerkUser } from "@clerk/nextjs";
 import { AppLayout } from "@/components/app-layout";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { useAIChat } from "@/hooks/useAIChat";
 import { useUser } from "@/hooks/useUser";
+import { MarkdownMessage } from "@/components/markdown-message";
+import { DraftPanel, Draft } from "@/components/draft-panel";
 import { 
   Paperclip, 
   Mic, 
@@ -25,6 +27,70 @@ import {
   Loader as LoaderIcon
 } from "lucide-react";
 
+/**
+ * Memoized single message component to prevent re-renders
+ */
+const ChatMessage = memo(({ message }: { message: { id: string; role: string; content: string } }) => {
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(message.content);
+  }, [message.content]);
+
+  return (
+    <div
+      className={`flex ${
+        message.role === "user" ? "justify-end" : "justify-start"
+      }`}
+    >
+      <div
+        className={`max-w-2xl rounded-lg px-4 py-3 ${
+          message.role === "user"
+            ? "bg-blue-600 text-white"
+            : "bg-gray-100 text-gray-800"
+        }`}
+      >
+        <div className="text-sm">
+          {message.role === "assistant" ? (
+            <MarkdownMessage content={message.content} />
+          ) : (
+            <p className="whitespace-pre-wrap break-words">{message.content}</p>
+          )}
+        </div>
+        
+        {/* Message actions */}
+        {message.role === "assistant" && (
+          <div className="flex gap-2 mt-3 pt-2 border-t border-gray-300">
+            <button
+              onClick={handleCopy}
+              className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
+              title="Copy message"
+            >
+              <Copy className="h-3 w-3" />
+              Copy
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});
+
+ChatMessage.displayName = 'ChatMessage';
+
+/**
+ * Memoized message list to prevent re-rendering all messages
+ */
+const MessageList = memo(({ messages }: { messages: any[] }) => {
+  return (
+    <>
+      {messages.map((message) => (
+        <ChatMessage key={message.id} message={message} />
+      ))}
+    </>
+  );
+});
+
+MessageList.displayName = 'MessageList';
+
 export default function Create() {
   // Context and hooks
   const { selectedOrganization, isPersonalProfile } = useOrganization();
@@ -34,9 +100,14 @@ export default function Create() {
   // UI state
   const [showThreadsPanel, setShowThreadsPanel] = useState(false);
   const [inputValue, setInputValue] = useState("");
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const [drafts, setDrafts] = useState<Draft[]>([]);
+  const [isDraftPanelCollapsed, setIsDraftPanelCollapsed] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   
   // AI chat state
-  const { messages, isLoading, error, sendMessage, clearChat } = useAIChat({
+  const { messages, isLoading, error, currentIntent, sendMessage, clearChat } = useAIChat({
     organizationId: selectedOrganization?.id || "",
     clerkUserId: clerkUser?.id || "",
   });
@@ -44,26 +115,104 @@ export default function Create() {
   // Check if user is on personal profile (not organization)
   const isBlocked = isPersonalProfile;
   const isChatActive = messages.length > 0;
+  const isDraftMode = currentIntent === 'draft' && isChatActive;
+  const hasDrafts = drafts.length > 0;
+  
+
 
   /**
-   * Handle sending a message
+   * Handle sending a message (memoized to prevent re-creation)
    */
-  const handleSendMessage = async () => {
+  const handleSendMessage = useCallback(async () => {
     if (!inputValue.trim() || isLoading) return;
 
-    await sendMessage(inputValue);
-    setInputValue(""); // Clear input after sending
-  };
+    const messageToSend = inputValue;
+    
+    // Trigger transition animation if this is the first message
+    if (messages.length === 0) {
+      setIsTransitioning(true);
+      // Wait for animation to complete before sending
+      setTimeout(() => {
+        setIsTransitioning(false);
+      }, 600);
+    }
+    
+    // If sending a new message while in draft mode, save current draft and collapse panel
+    if (isDraftMode && messages.length > 0) {
+      const lastAssistantMessage = messages.filter(m => m.role === 'assistant').pop();
+      if (lastAssistantMessage?.content) {
+        setDrafts(prev => [...prev, {
+          id: `draft-${Date.now()}`,
+          content: lastAssistantMessage.content,
+          timestamp: new Date(),
+        }]);
+        setIsDraftPanelCollapsed(true);
+      }
+    }
+    
+    setInputValue(""); // Clear input immediately for better UX
+    await sendMessage(messageToSend);
+  }, [inputValue, isLoading, sendMessage, messages.length, isDraftMode, messages]);
 
   /**
-   * Handle keyboard shortcut (Enter to send)
+   * Handle keyboard shortcut (Enter to send) - memoized
    */
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey && !isLoading) {
       e.preventDefault();
       handleSendMessage();
     }
-  };
+  }, [isLoading, handleSendMessage]);
+
+  /**
+   * Handle input change - memoized
+   */
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInputValue(e.target.value);
+  }, []);
+
+  /**
+   * Auto-scroll to bottom when messages change
+   */
+  const scrollToBottom = useCallback(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+  }, []);
+
+  /**
+   * Scroll to bottom when messages update or loading state changes
+   */
+  useEffect(() => {
+    if (isChatActive) {
+      // Small delay to ensure DOM has updated
+      setTimeout(scrollToBottom, 100);
+    }
+  }, [messages, isLoading, isChatActive, scrollToBottom]);
+
+  /**
+   * Auto-save draft when AI generates content in draft mode
+   */
+  useEffect(() => {
+    if (isDraftMode && !isLoading && messages.length > 0) {
+      const lastAssistantMessage = messages.filter(m => m.role === 'assistant').pop();
+      if (lastAssistantMessage?.content) {
+        const draftId = `draft-${lastAssistantMessage.id}`;
+        // Only add if this draft doesn't exist yet
+        setDrafts(prev => {
+          const exists = prev.some(d => d.id === draftId);
+          if (exists) return prev;
+          return [...prev, {
+            id: draftId,
+            content: lastAssistantMessage.content,
+            timestamp: new Date(),
+          }];
+        });
+        // Expand panel when new draft is created
+        setIsDraftPanelCollapsed(false);
+      }
+    }
+  }, [isDraftMode, isLoading, messages]);
 
   return (
     <AppLayout>
@@ -129,100 +278,86 @@ export default function Create() {
             /* Chat Interface */
             <main className="flex-1 flex flex-col overflow-hidden">
               {/* Chat Messages Area */}
-              {!isChatActive ? (
-                // Initial state - before user sends first message
-                <div className="flex-1 flex flex-col items-center justify-center px-6 pb-32">
-                  <div className="text-center max-w-2xl">
-                    <h1 className="text-4xl font-semibold text-gray-800 mb-2">
-                      What are you writing today?
-                    </h1>
-                    <p className="text-gray-500 mb-8">
-                      Create content for <span className="font-medium text-blue-600">{selectedOrganization?.name}</span>
-                    </p>
-                    
-                    {/* Quick prompts */}
-                    <div className="space-y-3">
-                      <p className="text-sm text-gray-400 mb-4">Try asking:</p>
-                      <div className="flex flex-wrap gap-2 justify-center">
-                        <button
-                          onClick={() => {
-                            setInputValue("Create a post about our latest product launch");
-                            setTimeout(() => {
-                              const textarea = document.querySelector('textarea');
-                              textarea?.focus();
-                            }, 0);
-                          }}
-                          className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-sm text-gray-700 rounded-full transition"
-                        >
-                          Product Launch
+              {/* Initial state - centered input before first message */}
+              {!isChatActive && !isTransitioning && (
+                <div 
+                  className="flex-1 flex flex-col items-center justify-center px-6 -mt-24 transition-opacity duration-500 ease-in-out opacity-100"
+                >
+                <div className="w-full max-w-3xl">
+                  <h1 
+                    className={`text-5xl font-medium text-gray-900 text-center mb-12 transition-opacity duration-300 ${
+                      !isChatActive && !isTransitioning ? 'opacity-100' : 'opacity-0'
+                    }`}
+                  >
+                    What are you writing today?
+                  </h1>
+                  
+                  {/* Centered Input */}
+                  <div className="bg-white rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
+                    <Textarea
+                      placeholder="Describe your LinkedIn post idea..."
+                      value={inputValue}
+                      onChange={handleInputChange}
+                      onKeyDown={handleKeyDown}
+                      className="min-h-[60px] border-0 text-base placeholder:text-gray-400 resize-none focus-visible:ring-0 focus-visible:ring-offset-0 p-5 rounded-t-2xl"
+                      disabled={isLoading || isTransitioning}
+                    />
+
+                    {/* Action Bar */}
+                    <div className="flex items-center justify-between px-4 py-3 bg-gray-50 rounded-b-2xl border-t border-gray-100">
+                      <div className="flex items-center gap-3 text-gray-400">
+                        <button className="hover:text-gray-600 transition">
+                          <Paperclip className="h-5 w-5" />
                         </button>
-                        <button
-                          onClick={() => {
-                            setInputValue("Write about company culture and team growth");
-                            setTimeout(() => {
-                              const textarea = document.querySelector('textarea');
-                              textarea?.focus();
-                            }, 0);
-                          }}
-                          className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-sm text-gray-700 rounded-full transition"
-                        >
-                          Team Spotlight
+                        <button className="hover:text-gray-600 transition">
+                          <Mic className="h-5 w-5" />
                         </button>
-                        <button
-                          onClick={() => {
-                            setInputValue("Share an industry insight or thought leadership idea");
-                            setTimeout(() => {
-                              const textarea = document.querySelector('textarea');
-                              textarea?.focus();
-                            }, 0);
-                          }}
-                          className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-sm text-gray-700 rounded-full transition"
-                        >
-                          Industry Insight
+                        <button className="hover:text-gray-600 transition">
+                          <BarChart3 className="h-5 w-5" />
                         </button>
                       </div>
+
+                      <Button
+                        size="sm"
+                        onClick={handleSendMessage}
+                        disabled={!inputValue.trim() || isLoading || isTransitioning}
+                        className="bg-orange-400 hover:bg-orange-500 text-white rounded-lg px-4 h-10 flex items-center gap-2 shadow-sm"
+                      >
+                        {isLoading ? (
+                          <LoaderIcon className="h-5 w-5 animate-spin" />
+                        ) : (
+                          <Send className="h-5 w-5" />
+                        )}
+                      </Button>
                     </div>
                   </div>
                 </div>
-              ) : (
-                // Chat messages area - when chat is active
-                <div className="flex-1 overflow-y-auto p-6 space-y-4">
-                  {messages.map((message) => (
-                    <div
-                      key={message.id}
-                      className={`flex ${
-                        message.role === "user" ? "justify-end" : "justify-start"
-                      }`}
-                    >
-                      <div
-                        className={`max-w-2xl rounded-lg px-4 py-3 ${
-                          message.role === "user"
-                            ? "bg-blue-600 text-white"
-                            : "bg-gray-100 text-gray-800"
-                        }`}
-                      >
-                        <p className="text-sm whitespace-pre-wrap break-words">
-                          {message.content}
-                        </p>
-                        
-                        {/* Message actions */}
-                        {message.role === "assistant" && (
-                          <div className="flex gap-2 mt-3 pt-2 border-t border-gray-300">
-                            <button
-                              onClick={() => {
-                                navigator.clipboard.writeText(message.content);
-                              }}
-                              className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
-                              title="Copy message"
-                            >
-                              <Copy className="h-3 w-3" />
-                              Copy
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+              </div>
+              )}
+              
+              {/* Chat messages area - when chat is active */}
+              {(isChatActive || isTransitioning) && (
+                // Chat messages area with draft panel
+                <div className="flex-1 flex overflow-hidden">
+                  {/* Draft Panel - Left Side */}
+                  {hasDrafts && (
+                    <DraftPanel
+                      drafts={drafts}
+                      organizationName={selectedOrganization?.name || ''}
+                      organizationImage={undefined}
+                      isCollapsed={isDraftPanelCollapsed}
+                      onToggle={() => setIsDraftPanelCollapsed(!isDraftPanelCollapsed)}
+                      onDeleteDraft={(id) => setDrafts(prev => prev.filter(d => d.id !== id))}
+                      onCopyDraft={(content) => navigator.clipboard.writeText(content)}
+                    />
+                  )}
+                  
+                  {/* Chat Messages - Right Side (or full width) */}
+                  <div 
+                    ref={messagesContainerRef}
+                    className="flex-1 overflow-y-auto p-6 space-y-4"
+                  >
+                    <MessageList messages={messages} />
 
                   {/* Loading indicator */}
                   {isLoading && (
@@ -244,63 +379,62 @@ export default function Create() {
                       </div>
                     </div>
                   )}
+                  
+                    {/* Invisible element at the end for auto-scroll */}
+                    <div ref={messagesEndRef} />
+                  </div>
                 </div>
               )}
 
-              {/* Input Area */}
-              <div className="border-t border-gray-200 bg-white p-4">
+              {/* Input Area - Slides in from center when chat becomes active */}
+              <div 
+                className={`border-t border-gray-200 bg-white p-4 transition-all duration-500 ease-in-out ${
+                  isChatActive || isTransitioning
+                    ? 'translate-y-0 opacity-100'
+                    : 'translate-y-full opacity-0 pointer-events-none'
+                }`}
+              >
                 <div className="max-w-4xl mx-auto">
-                  <div className="bg-white rounded-xl border border-gray-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-50 transition">
-                    <Textarea
-                      placeholder="Ask me to write a post, refine content, or get ideas..."
-                      value={inputValue}
-                      onChange={(e) => setInputValue(e.target.value)}
-                      onKeyDown={handleKeyDown}
-                      className="min-h-[50px] border-0 text-base placeholder:text-gray-400 resize-none focus-visible:ring-0 focus-visible:ring-offset-0 p-4"
-                      disabled={isLoading}
-                    />
+                  <div className="bg-white rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
+                      <Textarea
+                        placeholder="Describe your LinkedIn post idea..."
+                        value={inputValue}
+                        onChange={handleInputChange}
+                        onKeyDown={handleKeyDown}
+                        className="min-h-[60px] border-0 text-base placeholder:text-gray-400 resize-none focus-visible:ring-0 focus-visible:ring-offset-0 p-5 rounded-t-2xl"
+                        disabled={isLoading}
+                      />
 
-                    {/* Action Bar */}
-                    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-b-lg border-t border-gray-100">
-                      <div className="flex items-center gap-1">
-                        {isChatActive && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={clearChat}
-                            className="text-gray-500 hover:text-gray-700 text-xs"
-                            title="Clear chat"
-                          >
-                            <Trash2 className="h-4 w-4 mr-1" />
-                            Clear
-                          </Button>
-                        )}
+                      {/* Action Bar */}
+                      <div className="flex items-center justify-between px-4 py-3 bg-gray-50 rounded-b-2xl border-t border-gray-100">
+                        <div className="flex items-center gap-3">
+                          <button className="text-gray-400 hover:text-gray-600 transition">
+                            <Paperclip className="h-5 w-5" />
+                          </button>
+                          <button className="text-gray-400 hover:text-gray-600 transition">
+                            <Mic className="h-5 w-5" />
+                          </button>
+                          <button className="text-gray-400 hover:text-gray-600 transition">
+                            <BarChart3 className="h-5 w-5" />
+                          </button>
+                        </div>
+
+                        <Button
+                          size="sm"
+                          onClick={handleSendMessage}
+                          disabled={!inputValue.trim() || isLoading}
+                          className="bg-orange-400 hover:bg-orange-500 text-white rounded-lg px-4 h-10 flex items-center gap-2 shadow-sm"
+                        >
+                          {isLoading ? (
+                            <LoaderIcon className="h-5 w-5 animate-spin" />
+                          ) : (
+                            <Send className="h-5 w-5" />
+                          )}
+                        </Button>
                       </div>
-
-                      <Button
-                        size="sm"
-                        onClick={handleSendMessage}
-                        disabled={!inputValue.trim() || isLoading}
-                        className="bg-blue-600 hover:bg-blue-700 text-white rounded-full px-4 flex items-center gap-2"
-                      >
-                        {isLoading ? (
-                          <LoaderIcon className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Send className="h-4 w-4" />
-                        )}
-                        Send
-                      </Button>
                     </div>
                   </div>
-
-                  {/* Keyboard hint */}
-                  {!isChatActive && (
-                    <p className="text-xs text-gray-400 mt-2 text-center">
-                      💡 Tip: Use Shift+Enter for new lines
-                    </p>
-                  )}
                 </div>
-              </div>
             </main>
           )}
         </div>
