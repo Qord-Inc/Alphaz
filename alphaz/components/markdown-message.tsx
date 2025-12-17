@@ -1,13 +1,13 @@
 'use client';
 
-import React from 'react';
+import React, { memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 
 interface MarkdownMessageProps {
   content: string;
 }
 
-export function MarkdownMessage({ content }: MarkdownMessageProps) {
+export const MarkdownMessage = memo(({ content }: MarkdownMessageProps) => {
   return (
     <ReactMarkdown
       components={{
@@ -60,4 +60,6 @@ export function MarkdownMessage({ content }: MarkdownMessageProps) {
       {content}
     </ReactMarkdown>
   );
-}
+});
+
+MarkdownMessage.displayName = 'MarkdownMessage';
