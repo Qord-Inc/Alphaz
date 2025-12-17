@@ -137,17 +137,9 @@ export default function Create() {
       }, 600);
     }
     
-    // If sending a new message while in draft mode, save current draft and collapse panel
+    // Collapse panel when sending new message (draft already saved by useEffect)
     if (isDraftMode && messages.length > 0) {
-      const lastAssistantMessage = messages.filter(m => m.role === 'assistant').pop();
-      if (lastAssistantMessage?.content) {
-        setDrafts(prev => [...prev, {
-          id: `draft-${Date.now()}`,
-          content: lastAssistantMessage.content,
-          timestamp: new Date(),
-        }]);
-        setIsDraftPanelCollapsed(true);
-      }
+      setIsDraftPanelCollapsed(true);
     }
     
     setInputValue(""); // Clear input immediately for better UX
