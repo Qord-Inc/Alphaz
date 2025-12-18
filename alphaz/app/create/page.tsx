@@ -44,8 +44,8 @@ const ChatMessage = memo(({ message }: { message: { id: string; role: string; co
       <div
         className={`max-w-2xl rounded-lg px-4 py-3 ${
           message.role === "user"
-            ? "bg-blue-600 text-white"
-            : "bg-gray-100 text-gray-800"
+            ? "bg-primary text-primary-foreground"
+            : "bg-muted text-foreground"
         }`}
       >
         <div className="text-sm">
@@ -58,10 +58,10 @@ const ChatMessage = memo(({ message }: { message: { id: string; role: string; co
         
         {/* Message actions */}
         {message.role === "assistant" && (
-          <div className="flex gap-2 mt-3 pt-2 border-t border-gray-300">
+          <div className="flex gap-2 mt-3 pt-2 border-t border-border">
             <button
               onClick={handleCopy}
-              className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
+              className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
               title="Copy message"
             >
               <Copy className="h-3 w-3" />
@@ -212,17 +212,17 @@ export default function Create() {
         {/* Main Chat Area */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b border-gray-100">
+          <div className="flex items-center justify-between p-4 border-b border-border bg-card">
             <div className="flex items-center gap-2">
               {selectedOrganization ? (
                 <>
-                  <Building2 className="h-5 w-5 text-blue-600" />
-                  <span className="font-medium text-gray-800">{selectedOrganization.name}</span>
+                  <Building2 className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                  <span className="font-medium text-foreground">{selectedOrganization.name}</span>
                 </>
               ) : (
                 <>
-                  <User className="h-5 w-5 text-gray-500" />
-                  <span className="font-medium text-gray-500">Personal Profile</span>
+                  <User className="h-5 w-5 text-muted-foreground" />
+                  <span className="font-medium text-muted-foreground">Personal Profile</span>
                 </>
               )}
             </div>
@@ -250,13 +250,13 @@ export default function Create() {
           {isBlocked ? (
             <main className="flex-1 flex flex-col items-center justify-center px-6">
               <div className="text-center max-w-md">
-                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                  <Lock className="h-8 w-8 text-gray-400" />
+                <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-6">
+                  <Lock className="h-8 w-8 text-muted-foreground" />
                 </div>
-                <h2 className="text-2xl font-semibold text-gray-800 mb-3">
+                <h2 className="text-2xl font-semibold text-foreground mb-3">
                   Organization Required
                 </h2>
-                <p className="text-gray-500 mb-6">
+                <p className="text-muted-foreground mb-6">
                   To create content with AI assistance, please select an organization from the sidebar. 
                   Personal profile content creation is coming soon.
                 </p>
@@ -277,7 +277,7 @@ export default function Create() {
                 >
                 <div className="w-full max-w-3xl">
                   <h1 
-                    className={`text-5xl font-medium text-gray-900 text-center mb-12 transition-opacity duration-300 ${
+                    className={`text-5xl font-medium text-foreground text-center mb-12 transition-opacity duration-300 ${
                       !isChatActive && !isTransitioning ? 'opacity-100' : 'opacity-0'
                     }`}
                   >
@@ -285,20 +285,20 @@ export default function Create() {
                   </h1>
                   
                   {/* Centered Input */}
-                  <div className="bg-white rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
+                  <div className="bg-card rounded-2xl border border-border shadow-sm hover:shadow-md transition-shadow">
                     <Textarea
                       placeholder="Describe your LinkedIn post idea..."
                       value={inputValue}
                       onChange={handleInputChange}
                       onKeyDown={handleKeyDown}
-                      className="min-h-[60px] border-0 text-base placeholder:text-gray-400 resize-none focus-visible:ring-0 focus-visible:ring-offset-0 p-5 rounded-t-2xl"
+                      className="min-h-[60px] border-0 text-base placeholder:text-muted-foreground resize-none focus-visible:ring-0 focus-visible:ring-offset-0 p-5 rounded-t-2xl bg-transparent text-foreground"
                       disabled={isLoading || isTransitioning}
                     />
 
                     {/* Action Bar */}
-                    <div className="flex items-center justify-between px-4 py-3 bg-gray-50 rounded-b-2xl border-t border-gray-100">
-                      <div className="flex items-center gap-3 text-gray-400">
-                        <button className="hover:text-gray-600 transition">
+                    <div className="flex items-center justify-between px-4 py-3 bg-muted/30 rounded-b-2xl border-t border-border">
+                      <div className="flex items-center gap-3 text-muted-foreground">
+                        <button className="hover:text-foreground transition">
                           <Paperclip className="h-5 w-5" />
                         </button>
                         <button className="hover:text-gray-600 transition">
@@ -330,7 +330,7 @@ export default function Create() {
               {/* Chat messages area - when chat is active */}
               {(isChatActive || isTransitioning) && (
                 // Chat messages area with draft panel
-                <div className="flex-1 flex overflow-hidden">
+                <div className="flex-1 flex overflow-hidden relative">
                   {/* Draft Panel - Left Side */}
                   {hasDrafts && (
                     <DraftPanel
@@ -347,7 +347,7 @@ export default function Create() {
                   {/* Chat Messages - Right Side (or full width) */}
                   <div 
                     ref={messagesContainerRef}
-                    className="flex-1 overflow-y-auto p-6 space-y-4"
+                    className="flex-1 overflow-y-auto p-6 pb-44 space-y-4"
                   >
                     <MessageList messages={messages} />
 
@@ -378,35 +378,39 @@ export default function Create() {
                 </div>
               )}
 
-              {/* Input Area - Slides in from center when chat becomes active */}
+              {/* Input Area - Floating textbox when chat is active */}
               <div 
-                className={`border-t border-gray-200 bg-white p-4 transition-all duration-500 ease-in-out ${
+                className={`absolute bottom-0 right-0 p-6 pb-8 transition-all duration-500 ease-in-out ${
                   isChatActive || isTransitioning
                     ? 'translate-y-0 opacity-100'
                     : 'translate-y-full opacity-0 pointer-events-none'
                 }`}
+                style={{
+                  left: hasDrafts && !isDraftPanelCollapsed ? '600px' : '0',
+                  transition: 'left 300ms ease-in-out, transform 500ms ease-in-out, opacity 500ms ease-in-out'
+                }}
               >
-                <div className="max-w-4xl mx-auto">
-                  <div className="bg-white rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
+                <div className="max-w-3xl mx-auto pr-6">
+                  <div className="bg-card rounded-2xl border border-border shadow-lg hover:shadow-xl transition-all">
                       <Textarea
-                        placeholder="Describe your LinkedIn post idea..."
+                        placeholder="Continue the conversation..."
                         value={inputValue}
                         onChange={handleInputChange}
                         onKeyDown={handleKeyDown}
-                        className="min-h-[60px] border-0 text-base placeholder:text-gray-400 resize-none focus-visible:ring-0 focus-visible:ring-offset-0 p-5 rounded-t-2xl"
+                        className="min-h-[70px] border-0 text-base placeholder:text-muted-foreground resize-none focus-visible:ring-0 focus-visible:ring-offset-0 p-5 rounded-t-2xl bg-transparent text-foreground"
                         disabled={isLoading}
                       />
 
                       {/* Action Bar */}
-                      <div className="flex items-center justify-between px-4 py-3 bg-gray-50 rounded-b-2xl border-t border-gray-100">
+                      <div className="flex items-center justify-between px-5 py-3 bg-gradient-to-r from-muted/30 to-muted/10 rounded-b-2xl border-t border-border">
                         <div className="flex items-center gap-3">
-                          <button className="text-gray-400 hover:text-gray-600 transition">
+                          <button className="text-muted-foreground hover:text-foreground transition-colors hover:scale-110 transition-transform">
                             <Paperclip className="h-5 w-5" />
                           </button>
-                          <button className="text-gray-400 hover:text-gray-600 transition">
+                          <button className="text-gray-400 hover:text-gray-600 transition-colors hover:scale-110 transition-transform">
                             <Mic className="h-5 w-5" />
                           </button>
-                          <button className="text-gray-400 hover:text-gray-600 transition">
+                          <button className="text-gray-400 hover:text-gray-600 transition-colors hover:scale-110 transition-transform">
                             <BarChart3 className="h-5 w-5" />
                           </button>
                         </div>
@@ -415,7 +419,7 @@ export default function Create() {
                           size="sm"
                           onClick={handleSendMessage}
                           disabled={!inputValue.trim() || isLoading}
-                          className="bg-orange-400 hover:bg-orange-500 text-white rounded-lg px-4 h-10 flex items-center gap-2 shadow-sm"
+                          className="bg-gradient-to-r from-orange-400 to-orange-500 hover:from-orange-500 hover:to-orange-600 text-white rounded-xl px-5 h-10 flex items-center gap-2 shadow-md hover:shadow-lg transition-all"
                         >
                           {isLoading ? (
                             <LoaderIcon className="h-5 w-5 animate-spin" />
@@ -433,13 +437,13 @@ export default function Create() {
 
         {/* Chat Info Panel (Slide-out) */}
         <div 
-          className={`absolute right-0 top-0 h-full w-80 bg-white border-l border-gray-200 shadow-lg transform transition-transform duration-300 ease-in-out z-10 ${
+          className={`absolute right-0 top-0 h-full w-80 bg-card border-l border-border shadow-lg transform transition-transform duration-300 ease-in-out z-10 ${
             showThreadsPanel ? 'translate-x-0' : 'translate-x-full'
           }`}
         >
           {/* Panel Header */}
-          <div className="flex items-center justify-between p-4 border-b border-gray-100">
-            <h3 className="font-semibold text-gray-800">Chat Info</h3>
+          <div className="flex items-center justify-between p-4 border-b border-border">
+            <h3 className="font-semibold text-foreground">Chat Info</h3>
             <Button 
               variant="ghost" 
               size="icon"
