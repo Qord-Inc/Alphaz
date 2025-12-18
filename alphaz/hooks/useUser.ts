@@ -23,8 +23,33 @@ interface User {
 
 export function useUser() {
   const { isLoaded, isSignedIn, user: clerkUser } = useClerkUser();
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<User | null>(() => {
+    // Try to load cached user data immediately
+    try {
+      const cached = localStorage.getItem('user-data');
+      if (cached) {
+        const { data, timestamp } = JSON.parse(cached);
+        // Use cache if less than 5 minutes old
+        if (Date.now() - timestamp < 5 * 60 * 1000) {
+          return data;
+        }
+      }
+    } catch {}
+    return null;
+  });
+  // If we have cached data, we're not truly "loading", just refreshing in background
+  const [loading, setLoading] = useState(() => {
+    try {
+      const cached = localStorage.getItem('user-data');
+      if (cached) {
+        const { data, timestamp } = JSON.parse(cached);
+        if (Date.now() - timestamp < 5 * 60 * 1000) {
+          return false; // We have valid cache, not loading
+        }
+      }
+    } catch {}
+    return true; // No cache, we're loading
+  });
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -36,16 +61,30 @@ export function useUser() {
       }
 
       try {
-        // Check if user exists in our database
+        // Fetch with timeout (10 seconds)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+
         const response = await fetch(`${API_BASE_URL}/api/users/${clerkUser.id}`, {
           headers: {
             'Content-Type': 'application/json',
-          }
+          },
+          signal: controller.signal
         });
+        
+        clearTimeout(timeoutId);
 
         if (response.ok) {
           const data = await response.json();
           setUser(data.user);
+          
+          // Cache the user data
+          try {
+            localStorage.setItem('user-data', JSON.stringify({
+              data: data.user,
+              timestamp: Date.now()
+            }));
+          } catch {}
         } else if (response.status === 404) {
           // User doesn't exist, create them
           const primaryEmail = clerkUser.emailAddresses[0]?.emailAddress;
@@ -70,6 +109,14 @@ export function useUser() {
           if (createResponse.ok) {
             const data = await createResponse.json();
             setUser(data.user);
+            
+            // Cache the new user data
+            try {
+              localStorage.setItem('user-data', JSON.stringify({
+                data: data.user,
+                timestamp: Date.now()
+              }));
+            } catch {}
           } else {
             throw new Error('Failed to create user');
           }
@@ -78,7 +125,17 @@ export function useUser() {
         }
       } catch (err) {
         console.error('Error syncing user:', err);
-        setError(err instanceof Error ? err.message : 'Failed to sync user');
+        
+        // If we have cached data and this is a timeout/network error, use the cache
+        if (err instanceof Error && err.name === 'AbortError') {
+          console.warn('Request timed out, using cached data if available');
+          // User state already set from cache in useState initializer
+          if (!user) {
+            setError('Connection timeout - please check your network');
+          }
+        } else {
+          setError(err instanceof Error ? err.message : 'Failed to sync user');
+        }
       } finally {
         setLoading(false);
       }
