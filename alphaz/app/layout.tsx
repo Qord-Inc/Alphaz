@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { UserSync } from "@/components/user-sync";
 import { OrganizationProvider } from "@/contexts/OrganizationContext";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 import "./globals.css";
 import { PostHogProvider } from '@/contexts/PostHogContext';
 
@@ -30,17 +31,33 @@ export default function RootLayout({
 }>) {
   return (
     <ClerkProvider>
-      <html lang="en">
+      <html lang="en" suppressHydrationWarning>
+        <head>
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `
+                try {
+                  const theme = localStorage.getItem('theme');
+                  if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                    document.documentElement.classList.add('dark');
+                  }
+                } catch (e) {}
+              `,
+            }}
+          />
+        </head>
         <body
           className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         >
-          <PostHogProvider>
-          <UserSync>
-            <OrganizationProvider>
-              {children}
-            </OrganizationProvider>
-          </UserSync>
-          </PostHogProvider>
+          <ThemeProvider>
+            <PostHogProvider>
+              <UserSync>
+                <OrganizationProvider>
+                  {children}
+                </OrganizationProvider>
+              </UserSync>
+            </PostHogProvider>
+          </ThemeProvider>
         </body>
       </html>
     </ClerkProvider>

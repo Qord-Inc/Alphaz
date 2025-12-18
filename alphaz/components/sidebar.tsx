@@ -7,6 +7,7 @@ import { UserButton, useUser as useClerkUser } from "@clerk/nextjs"
 import { useUser } from "@/hooks/useUser"
 import { useOrganization } from "@/contexts/OrganizationContext"
 import { Button } from "@/components/ui/button"
+import { ThemeToggle } from "@/components/theme-toggle"
 import { cn } from "@/lib/utils"
 import { 
   BarChart3, 
@@ -395,25 +396,44 @@ export function Sidebar({ className }: SidebarProps) {
         </div>
       )}
 
-      {/* User Profile */}
-      <div className="border-t border-gray-800 p-4">
-        <div className="flex items-center space-x-3">
-          <UserButton 
-            afterSignOutUrl="/sign-in"
-            appearance={{
-              elements: {
-                avatarBox: "h-8 w-8",
-                userButtonTrigger: "focus:shadow-none",
-              }
-            }}
-          />
-          {!isCollapsed && clerkUser && (
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-white truncate">
-                {clerkUser.fullName || clerkUser.emailAddresses?.[0]?.emailAddress || "User"}
-              </div>
+      {/* User Profile & Theme Toggle */}
+      <div className="border-t border-gray-800">
+        {/* Theme Toggle */}
+        {!isCollapsed && (
+          <div className="p-4 border-b border-gray-800">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-400">Theme</span>
+              <ThemeToggle />
             </div>
-          )}
+          </div>
+        )}
+        
+        {isCollapsed && (
+          <div className="p-2 border-b border-gray-800 flex justify-center">
+            <ThemeToggle />
+          </div>
+        )}
+
+        {/* User Profile */}
+        <div className="p-4">
+          <div className="flex items-center space-x-3">
+            <UserButton 
+              afterSignOutUrl="/sign-in"
+              appearance={{
+                elements: {
+                  avatarBox: "h-8 w-8",
+                  userButtonTrigger: "focus:shadow-none",
+                }
+              }}
+            />
+            {!isCollapsed && clerkUser && (
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-white truncate">
+                  {clerkUser.fullName || clerkUser.emailAddresses?.[0]?.emailAddress || "User"}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

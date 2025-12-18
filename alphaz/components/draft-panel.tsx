@@ -59,14 +59,14 @@ export const DraftPanel = memo(({
   return (
     <div 
       className={`
-        relative transition-all duration-300 ease-in-out border-r border-gray-200 bg-gray-50
-        ${isCollapsed ? 'w-12' : 'w-[480px]'}
+        relative transition-all duration-300 ease-in-out border-r border-border bg-muted/30
+        ${isCollapsed ? 'w-12' : 'w-[600px]'}
       `}
     >
       {/* Collapse/Expand Button */}
       <button
         onClick={onToggle}
-        className="absolute -right-3 top-6 z-20 w-6 h-6 bg-white border border-gray-300 rounded-full shadow-sm hover:shadow-md transition-all flex items-center justify-center text-gray-600 hover:text-gray-900"
+        className="absolute -right-3 top-6 z-20 w-6 h-6 bg-card border border-border rounded-full shadow-sm hover:shadow-md transition-all flex items-center justify-center text-muted-foreground hover:text-foreground"
         title={isCollapsed ? 'Expand drafts' : 'Collapse drafts'}
       >
         {isCollapsed ? (
@@ -81,7 +81,7 @@ export const DraftPanel = memo(({
         <div className="h-full flex flex-col items-center pt-20 gap-4">
           <button
             onClick={onToggle}
-            className="text-sm font-medium text-gray-600 hover:text-gray-900 transition px-2 py-4 hover:bg-gray-100 rounded"
+            className="text-sm font-medium text-muted-foreground hover:text-foreground transition px-2 py-4 hover:bg-muted rounded"
             style={{ writingMode: 'vertical-rl' }}
           >
             Drafts ({drafts.length})
@@ -91,7 +91,7 @@ export const DraftPanel = memo(({
               <div
                 key={index}
                 className={`w-2 h-2 rounded-full transition-colors ${
-                  index === selectedDraftIndex ? 'bg-blue-600' : 'bg-gray-300'
+                  index === selectedDraftIndex ? 'bg-blue-600 dark:bg-blue-400' : 'bg-muted-foreground/30'
                 }`}
               />
             ))}
@@ -103,12 +103,12 @@ export const DraftPanel = memo(({
       {!isCollapsed && (
         <div className="h-full flex flex-col">
           {/* Header */}
-          <div className="px-6 py-4 border-b border-gray-200 bg-white">
+          <div className="px-6 py-4 border-b border-border bg-card">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-blue-600" />
-                <h3 className="font-semibold text-gray-900">Draft Posts</h3>
-                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+                <FileText className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                <h3 className="font-semibold text-foreground">Draft Posts</h3>
+                <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full font-medium">
                   {drafts.length}
                 </span>
               </div>
@@ -124,8 +124,8 @@ export const DraftPanel = memo(({
                     className={`
                       flex-shrink-0 px-3 py-2 rounded-lg border-2 transition-all text-left
                       ${selectedDraftIndex === index 
-                        ? 'border-blue-500 bg-blue-50' 
-                        : 'border-gray-200 bg-white hover:border-gray-300'
+                        ? 'border-blue-500 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/20' 
+                        : 'border-border bg-card hover:border-muted-foreground/30'
                       }
                     `}
                   >
