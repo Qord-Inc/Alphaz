@@ -129,17 +129,54 @@ export function Sidebar({ className }: SidebarProps) {
     const fetchCompanyPages = async () => {
       if (user?.linkedin_connected && user?.clerk_user_id) {
         console.log('Fetching company pages for user:', user.clerk_user_id)
+        
+        // Try to load cached company pages immediately
         try {
-          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/linkedin/company-pages/${user.clerk_user_id}`)
+          const cached = localStorage.getItem(`company-pages-${user.clerk_user_id}`);
+          if (cached) {
+            const { data, timestamp } = JSON.parse(cached);
+            // Use cache if less than 10 minutes old
+            if (Date.now() - timestamp < 10 * 60 * 1000) {
+              console.log('Using cached company pages');
+              setCompanyPages(data);
+            }
+          }
+        } catch {}
+        
+        // Fetch fresh data in background
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 8000);
+          
+          const response = await fetch(
+            `${process.env.NEXT_PUBLIC_API_URL}/api/linkedin/company-pages/${user.clerk_user_id}`,
+            { signal: controller.signal }
+          );
+          
+          clearTimeout(timeoutId);
+          
           if (response.ok) {
-            const data = await response.json()
-            console.log('Company pages response:', data)
-            setCompanyPages(data.companyPages || [])
+            const data = await response.json();
+            console.log('Company pages response:', data);
+            const pages = data.companyPages || [];
+            setCompanyPages(pages);
+            
+            // Cache the company pages
+            try {
+              localStorage.setItem(`company-pages-${user.clerk_user_id}`, JSON.stringify({
+                data: pages,
+                timestamp: Date.now()
+              }));
+            } catch {}
           } else {
-            console.error('Failed to fetch company pages:', response.status, response.statusText)
+            console.error('Failed to fetch company pages:', response.status, response.statusText);
           }
         } catch (error) {
-          console.error('Error fetching company pages:', error)
+          if (error instanceof Error && error.name === 'AbortError') {
+            console.warn('Company pages request timed out, using cached data');
+          } else {
+            console.error('Error fetching company pages:', error);
+          }
         }
       }
     }
@@ -170,7 +207,17 @@ export function Sidebar({ className }: SidebarProps) {
       <div className="flex h-16 items-center justify-between px-4 border-b border-gray-800">
         {!isCollapsed && (
           <div className="flex items-center space-x-3 flex-1">
-            {user?.linkedin_connected ? (
+            {userLoading ? (
+              <div className="flex items-center space-x-2 flex-1">
+                <div className="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center animate-pulse">
+                  <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+                </div>
+                <div className="flex-1">
+                  <div className="h-4 bg-gray-800 rounded animate-pulse mb-1" />
+                  <div className="h-3 bg-gray-800 rounded animate-pulse w-2/3" />
+                </div>
+              </div>
+            ) : user?.linkedin_connected ? (
               <div className="relative flex-1" ref={dropdownRef}>
                 <button
                   onClick={() => setShowDropdown(!showDropdown)}
@@ -221,6 +268,13 @@ export function Sidebar({ className }: SidebarProps) {
                 {/* Dropdown menu */}
                 {showDropdown && (
                   <div className="absolute top-full left-0 right-0 mt-1 bg-gray-900 border border-gray-700 rounded shadow-lg z-50 max-h-96 overflow-y-auto">
+                    {/* Loading state for company pages */}
+                    {companyPages.length === 0 && user?.linkedin_connected && (
+                      <div className="p-4 text-center">
+                        <Loader2 className="w-5 h-5 animate-spin text-gray-400 mx-auto mb-2" />
+                        <div className="text-xs text-gray-400">Loading organizations...</div>
+                      </div>
+                    )}
                     {/* Personal Profile Option */}
                     <button
                       onClick={() => {
@@ -257,8 +311,8 @@ export function Sidebar({ className }: SidebarProps) {
                       <div className="border-t border-gray-700 my-1" />
                     )}
                     
-                    {/* Company Pages Section */}
-                    {companyPages.length > 0 && (
+                    {/* Company Pages Section - Only show when pages are loaded */}
+                    {companyPages.length > 0 && user?.linkedin_connected && (
                       <>
                         <div className="px-3 py-2 text-xs text-gray-500 font-medium uppercase tracking-wider">
                           Company Pages
@@ -318,18 +372,24 @@ export function Sidebar({ className }: SidebarProps) {
             )}
           </div>
         )}
-        {isCollapsed && user?.linkedin_connected && (
-          user.linkedin_profile_picture_url ? (
-            <img 
-              src={user.linkedin_profile_picture_url} 
-              alt={user.linkedin_profile_name || "Profile"}
-              className="w-8 h-8 rounded-full object-cover mx-auto"
-            />
-          ) : (
-            <div className="w-8 h-8 rounded-full bg-[#0077b5] flex items-center justify-center mx-auto">
-              <Linkedin className="w-4 h-4 text-white" />
+        {isCollapsed && (
+          userLoading ? (
+            <div className="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center mx-auto animate-pulse">
+              <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
             </div>
-          )
+          ) : user?.linkedin_connected ? (
+            user.linkedin_profile_picture_url ? (
+              <img 
+                src={user.linkedin_profile_picture_url} 
+                alt={user.linkedin_profile_name || "Profile"}
+                className="w-8 h-8 rounded-full object-cover mx-auto"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-[#0077b5] flex items-center justify-center mx-auto">
+                <Linkedin className="w-4 h-4 text-white" />
+              </div>
+            )
+          ) : null
         )}
         <Button
           variant="ghost"
@@ -373,8 +433,18 @@ export function Sidebar({ className }: SidebarProps) {
         </ul>
       </nav>
 
-      {/* LinkedIn Connect Button */}
-      {!user?.linkedin_connected && !userLoading && (
+      {/* LinkedIn Connect Button or Loading State */}
+      {userLoading ? (
+        <div className="px-4 py-2 border-t border-gray-800">
+          <div className={cn(
+            "w-full h-10 rounded-md flex items-center justify-center bg-gray-800 animate-pulse",
+            isCollapsed && "px-2"
+          )}>
+            <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+            {!isCollapsed && <span className="ml-2 text-sm text-gray-400">Loading...</span>}
+          </div>
+        </div>
+      ) : !user?.linkedin_connected ? (
         <div className="px-4 py-2 border-t border-gray-800">
           <Button
             onClick={handleConnectLinkedIn}
@@ -394,7 +464,7 @@ export function Sidebar({ className }: SidebarProps) {
             )}
           </Button>
         </div>
-      )}
+      ) : null}
 
       {/* User Profile & Theme Toggle */}
       <div className="border-t border-gray-800">
