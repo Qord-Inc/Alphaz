@@ -46,16 +46,16 @@ const PostModal: React.FC<PostModalProps> = ({ post, isOpen, onClose }) => {
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="sticky top-0 bg-white border-b p-4 flex justify-between items-center">
+      <div className="bg-card text-foreground rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="sticky top-0 bg-card border-b border-border p-4 flex justify-between items-center">
           <h2 className="text-xl font-semibold">Post Details</h2>
-          <Button variant="ghost" onClick={onClose} className="text-gray-500 hover:text-gray-700">
+          <Button variant="ghost" onClick={onClose} className="text-muted-foreground hover:text-foreground">
             ✕
           </Button>
         </div>
         
         <div className="p-6">
-          <div className="mb-4 text-sm text-gray-500">
+          <div className="mb-4 text-sm text-muted-foreground">
             {formatDistanceToNow(new Date(post.publishedAt || post.createdAt), { addSuffix: true })}
           </div>
 
@@ -66,15 +66,15 @@ const PostModal: React.FC<PostModalProps> = ({ post, isOpen, onClose }) => {
           {post.media.length > 0 && (
             <div className="space-y-4 mb-6">
               {post.media.map((item, index) => (
-                <div key={index} className="border rounded-lg overflow-hidden">
+                <div key={index} className="border border-border rounded-lg overflow-hidden">
                   {item.type === 'image' && (
-                    <div className="bg-gray-100 p-2">
+                    <div className="bg-muted p-2">
                       <Image className="w-5 h-5 inline mr-2" />
                       <span>Image attachment</span>
                     </div>
                   )}
                   {item.type === 'video' && (
-                    <div className="bg-gray-100 p-2">
+                    <div className="bg-muted p-2">
                       <Video className="w-5 h-5 inline mr-2" />
                       <span>Video attachment</span>
                     </div>
@@ -83,9 +83,9 @@ const PostModal: React.FC<PostModalProps> = ({ post, isOpen, onClose }) => {
                     <div className="p-4">
                       <FileText className="w-5 h-5 inline mr-2" />
                       <h3 className="font-medium inline">{item.title}</h3>
-                      {item.description && <p className="text-sm text-gray-600 mt-2">{item.description}</p>}
+                      {item.description && <p className="text-sm text-muted-foreground mt-2">{item.description}</p>}
                       {item.url && (
-                        <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline mt-2 inline-block">
+                        <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline mt-2 inline-block">
                           <ExternalLink className="w-4 h-4 inline mr-1" />
                           View article
                         </a>
@@ -97,34 +97,34 @@ const PostModal: React.FC<PostModalProps> = ({ post, isOpen, onClose }) => {
             </div>
           )}
 
-          <div className="grid grid-cols-4 gap-4 p-4 bg-gray-50 rounded-lg">
+          <div className="grid grid-cols-4 gap-4 p-4 bg-muted rounded-lg">
             <div className="text-center">
-              <div className="flex items-center justify-center text-gray-600 mb-1">
+              <div className="flex items-center justify-center text-foreground mb-1">
                 <Heart className="w-5 h-5 mr-1" />
                 <span className="font-semibold">{post.metrics.likes.toLocaleString()}</span>
               </div>
-              <div className="text-xs text-gray-500">Likes</div>
+              <div className="text-xs text-muted-foreground">Likes</div>
             </div>
             <div className="text-center">
-              <div className="flex items-center justify-center text-gray-600 mb-1">
+              <div className="flex items-center justify-center text-foreground mb-1">
                 <MessageCircle className="w-5 h-5 mr-1" />
                 <span className="font-semibold">{post.metrics.comments.toLocaleString()}</span>
               </div>
-              <div className="text-xs text-gray-500">Comments</div>
+              <div className="text-xs text-muted-foreground">Comments</div>
             </div>
             <div className="text-center">
-              <div className="flex items-center justify-center text-gray-600 mb-1">
+              <div className="flex items-center justify-center text-foreground mb-1">
                 <Repeat className="w-5 h-5 mr-1" />
                 <span className="font-semibold">{post.metrics.reposts.toLocaleString()}</span>
               </div>
-              <div className="text-xs text-gray-500">Reposts</div>
+              <div className="text-xs text-muted-foreground">Reposts</div>
             </div>
             <div className="text-center">
-              <div className="flex items-center justify-center text-gray-600 mb-1">
+              <div className="flex items-center justify-center text-foreground mb-1">
                 <Eye className="w-5 h-5 mr-1" />
                 <span className="font-semibold">{post.metrics.impressions.toLocaleString()}</span>
               </div>
-              <div className="text-xs text-gray-500">Impressions</div>
+              <div className="text-xs text-muted-foreground">Impressions</div>
             </div>
           </div>
         </div>
@@ -332,26 +332,26 @@ export const OrganizationPosts: React.FC<OrganizationPostsProps> = ({ onRefresh,
               {posts.map(post => (
                 <Card 
                   key={post.id} 
-                  className="cursor-pointer hover:shadow-md transition-shadow"
+                  className="cursor-pointer hover:shadow-md dark:hover:shadow-primary/20 transition-all"
                   onClick={() => setSelectedPost(post)}
                 >
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between mb-2">
-                      <div className="text-sm text-gray-500">
+                      <div className="text-sm text-muted-foreground">
                         <Calendar className="w-4 h-4 inline mr-1" />
                         {formatDistanceToNow(new Date(post.publishedAt || post.createdAt), { addSuffix: true })}
                       </div>
-                      <div className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">
+                      <div className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
                         {post.visibility}
                       </div>
                     </div>
 
-                    <p className="text-sm mb-3 line-clamp-3">{post.textContent}</p>
+                    <p className="text-sm mb-3 line-clamp-3 text-foreground">{post.textContent}</p>
 
                     {post.media.length > 0 && (
                       <div className="flex gap-2 mb-3">
                         {post.media.map((item, index) => (
-                          <div key={index} className="text-xs bg-gray-100 px-2 py-1 rounded flex items-center gap-1">
+                          <div key={index} className="text-xs bg-muted px-2 py-1 rounded flex items-center gap-1">
                             {item.type === 'image' && <Image className="w-3 h-3" />}
                             {item.type === 'video' && <Video className="w-3 h-3" />}
                             {item.type === 'article' && <FileText className="w-3 h-3" />}
@@ -361,20 +361,20 @@ export const OrganizationPosts: React.FC<OrganizationPostsProps> = ({ onRefresh,
                       </div>
                     )}
 
-                    <div className="flex items-center gap-4 text-sm text-gray-600">
-                      <span className="flex items-center gap-1">
+                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                      <span className="flex items-center gap-1 hover:text-foreground transition-colors">
                         <Heart className="w-4 h-4" />
                         {post.metrics.likes.toLocaleString()}
                       </span>
-                      <span className="flex items-center gap-1">
+                      <span className="flex items-center gap-1 hover:text-foreground transition-colors">
                         <MessageCircle className="w-4 h-4" />
                         {post.metrics.comments.toLocaleString()}
                       </span>
-                      <span className="flex items-center gap-1">
+                      <span className="flex items-center gap-1 hover:text-foreground transition-colors">
                         <Repeat className="w-4 h-4" />
                         {post.metrics.reposts.toLocaleString()}
                       </span>
-                      <span className="flex items-center gap-1">
+                      <span className="flex items-center gap-1 hover:text-foreground transition-colors">
                         <Eye className="w-4 h-4" />
                         {post.metrics.impressions.toLocaleString()}
                       </span>
