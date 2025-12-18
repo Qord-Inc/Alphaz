@@ -418,11 +418,12 @@ async function storePost(clerkUserId, organizationId, organizationName, post) {
     const author = post.author;
     const createdAt = post.createdAt ? new Date(post.createdAt) : null;
     
-    // Extract metrics
-    const likeCount = post.lifecycleState?.likeCount || 0;
-    const commentCount = post.lifecycleState?.commentCount || 0;
-    const shareCount = post.lifecycleState?.shareCount || 0;
-    const impressionCount = post.lifecycleState?.impressionCount || 0;
+    // Extract metrics - prioritize post.metrics if available (from social actions API)
+    const metrics = post.metrics || {};
+    const likeCount = metrics.likes || post.lifecycleState?.likeCount || 0;
+    const commentCount = metrics.comments || post.lifecycleState?.commentCount || 0;
+    const shareCount = metrics.reposts || post.lifecycleState?.shareCount || 0;
+    const impressionCount = metrics.impressions || post.lifecycleState?.impressionCount || 0;
     
     // Calculate engagement rate
     const engagementRate = impressionCount > 0 

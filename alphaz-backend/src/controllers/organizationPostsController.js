@@ -6,6 +6,44 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
+/**
+ * Fetch social actions (likes, comments) for multiple posts
+ * @param {string} accessToken - LinkedIn access token
+ * @param {string[]} postUrns - Array of post URNs
+ * @returns {Promise<Object>} - Social actions data keyed by URN
+ */
+async function fetchSocialActions(accessToken, postUrns) {
+  if (!postUrns || postUrns.length === 0) {
+    return {};
+  }
+
+  try {
+    // Build the ids parameter: List(urn1, urn2, urn3,...)
+    const idsParam = `List(${postUrns.map(urn => encodeURIComponent(urn)).join(',')})`;
+    const url = `https://api.linkedin.com/rest/socialActions?ids=${idsParam}`;
+    
+    console.log('Fetching social actions for', postUrns.length, 'posts');
+    console.log('Social Actions URL:', url);
+
+    const response = await axios.get(url, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'LinkedIn-Version': '202511',
+        'X-Restli-Protocol-Version': '2.0.0'
+      }
+    });
+
+    const results = response.data.results || {};
+    console.log('Social actions fetched successfully for', Object.keys(results).length, 'posts');
+    
+    return results;
+  } catch (error) {
+    console.error('Error fetching social actions:', error.response?.data || error.message);
+    // Return empty object on error - posts will show with 0 engagement
+    return {};
+  }
+}
+
 // Fetch posts for an organization
 const getOrganizationPosts = async (req, res) => {
   try {
@@ -68,6 +106,10 @@ const getOrganizationPosts = async (req, res) => {
 
     const posts = response.data.elements || [];
     
+    // Fetch social actions (likes/comments) for all posts in batch
+    const postUrns = posts.map(post => post.$URN).filter(Boolean);
+    const socialActions = await fetchSocialActions(accessToken, postUrns);
+    
     // Process posts to extract key information
     const processedPosts = posts.map(post => {
      // console.log('Raw post structure:', JSON.stringify(post, null, 2));
@@ -103,11 +145,10 @@ const getOrganizationPosts = async (req, res) => {
         }];
       }
 
-      // Extract engagement metrics
-      const socialDetail = post.socialDetail || {};
-      console.log('Post social detail structure:', JSON.stringify(socialDetail, null, 2));
+      // Extract engagement metrics from social actions API (preferred) or fallback to post data
+      const postUrn = post.$URN;
+      const socialAction = socialActions[postUrn];
       
-      // Try multiple possible paths for metrics
       let metrics = {
         likes: 0,
         comments: 0,
@@ -115,31 +156,56 @@ const getOrganizationPosts = async (req, res) => {
         impressions: 0
       };
 
-      // Check different possible structures
+      // Priority 1: Use social actions API data (most accurate)
+      if (socialAction) {
+        metrics.likes = socialAction.likesSummary?.totalLikes || 
+                       socialAction.likesSummary?.aggregatedTotalLikes || 0;
+        metrics.comments = socialAction.commentsSummary?.totalFirstLevelComments || 
+                          socialAction.commentsSummary?.aggregatedTotalComments || 0;
+        
+        console.log(`✓ Social actions for ${postUrn}:`, {
+          likes: metrics.likes,
+          comments: metrics.comments
+        });
+      }
+      
+      // Priority 2: Fallback to post's socialDetail for impressions/reposts
+      const socialDetail = post.socialDetail || {};
+      
       if (socialDetail.totalSocialActivityCounts) {
-        metrics = {
-          likes: socialDetail.totalSocialActivityCounts.numLikes || 0,
-          comments: socialDetail.totalSocialActivityCounts.numComments || 0,
-          reposts: socialDetail.totalSocialActivityCounts.numShares || 0,
-          impressions: socialDetail.totalSocialActivityCounts.numImpressions || 0
-        };
+        // Use social actions for likes/comments if available, otherwise use socialDetail
+        if (!socialAction) {
+          metrics.likes = socialDetail.totalSocialActivityCounts.numLikes || 0;
+          metrics.comments = socialDetail.totalSocialActivityCounts.numComments || 0;
+        }
+        metrics.reposts = socialDetail.totalSocialActivityCounts.numShares || 0;
+        metrics.impressions = socialDetail.totalSocialActivityCounts.numImpressions || 0;
       } else if (socialDetail.socialActivityCounts) {
-        metrics = {
-          likes: socialDetail.socialActivityCounts.numLikes || 0,
-          comments: socialDetail.socialActivityCounts.numComments || 0,
-          reposts: socialDetail.socialActivityCounts.numShares || 0,
-          impressions: socialDetail.socialActivityCounts.numImpressions || 0
-        };
+        if (!socialAction) {
+          metrics.likes = socialDetail.socialActivityCounts.numLikes || 0;
+          metrics.comments = socialDetail.socialActivityCounts.numComments || 0;
+        }
+        metrics.reposts = socialDetail.socialActivityCounts.numShares || 0;
+        metrics.impressions = socialDetail.socialActivityCounts.numImpressions || 0;
       } else if (post.socialCounts) {
-        metrics = {
-          likes: post.socialCounts.numLikes || 0,
-          comments: post.socialCounts.numComments || 0,
-          reposts: post.socialCounts.numShares || 0,
-          impressions: post.socialCounts.numImpressions || 0
-        };
+        if (!socialAction) {
+          metrics.likes = post.socialCounts.numLikes || 0;
+          metrics.comments = post.socialCounts.numComments || 0;
+        }
+        metrics.reposts = post.socialCounts.numShares || 0;
+        metrics.impressions = post.socialCounts.numImpressions || 0;
       }
 
-      console.log('Extracted metrics:', metrics);
+      // Log final metrics for this post
+      const postPreview = textContent.substring(0, 50).replace(/\n/g, ' ') + (textContent.length > 50 ? '...' : '');
+      console.log(`📊 Post ID ${post.id}:`, {
+        preview: postPreview,
+        likes: metrics.likes,
+        comments: metrics.comments,
+        reposts: metrics.reposts,
+        impressions: metrics.impressions,
+        source: socialAction ? 'Social Actions API' : 'Post socialDetail'
+      });
 
       return {
         id: post.id,
@@ -157,6 +223,20 @@ const getOrganizationPosts = async (req, res) => {
         distributionTarget: post.target
       };
     });
+
+    // Log summary statistics
+    const totalLikes = processedPosts.reduce((sum, post) => sum + post.metrics.likes, 0);
+    const totalComments = processedPosts.reduce((sum, post) => sum + post.metrics.comments, 0);
+    const totalReposts = processedPosts.reduce((sum, post) => sum + post.metrics.reposts, 0);
+    const totalImpressions = processedPosts.reduce((sum, post) => sum + post.metrics.impressions, 0);
+    
+    console.log('\n📈 ENGAGEMENT SUMMARY:');
+    console.log(`   Posts fetched: ${processedPosts.length}`);
+    console.log(`   Total Likes: ${totalLikes.toLocaleString()}`);
+    console.log(`   Total Comments: ${totalComments.toLocaleString()}`);
+    console.log(`   Total Reposts: ${totalReposts.toLocaleString()}`);
+    console.log(`   Total Impressions: ${totalImpressions.toLocaleString()}`);
+    console.log(`   Avg Engagement: ${processedPosts.length > 0 ? ((totalLikes + totalComments + totalReposts) / processedPosts.length).toFixed(1) : 0} per post\n`);
 
     // Get pagination info
     const paging = response.data.paging || {};
