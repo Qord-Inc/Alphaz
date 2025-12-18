@@ -13,25 +13,27 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>('light');
+  const [theme, setThemeState] = useState<Theme>(() => {
+    // Initialize from localStorage or system preference during SSR-safe initialization
+    if (typeof window === 'undefined') return 'light';
+    
+    try {
+      const storedTheme = localStorage.getItem('theme') as Theme | null;
+      if (storedTheme) return storedTheme;
+      
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      return prefersDark ? 'dark' : 'light';
+    } catch {
+      return 'light';
+    }
+  });
   const [mounted, setMounted] = useState(false);
 
-  // Initialize theme from localStorage or system preference
+  // Apply theme on mount
   useEffect(() => {
     setMounted(true);
-    const storedTheme = localStorage.getItem('theme') as Theme | null;
-    
-    if (storedTheme) {
-      setThemeState(storedTheme);
-      applyTheme(storedTheme);
-    } else {
-      // Check system preference
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      const systemTheme = prefersDark ? 'dark' : 'light';
-      setThemeState(systemTheme);
-      applyTheme(systemTheme);
-    }
-  }, []);
+    applyTheme(theme);
+  }, [theme]);
 
   // Listen for system theme changes
   useEffect(() => {
@@ -69,11 +71,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setTheme(newTheme);
   };
 
-  // Prevent flash of unstyled content
-  if (!mounted) {
-    return <div style={{ visibility: 'hidden' }}>{children}</div>;
-  }
-
+  // Always provide context, even during SSR/initial render
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme, setTheme }}>
       {children}
