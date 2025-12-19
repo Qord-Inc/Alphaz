@@ -23,6 +23,7 @@ import {
   User,
   Lock,
   Copy,
+  FileText,
   Trash2,
   Loader as LoaderIcon
 } from "lucide-react";
@@ -30,45 +31,94 @@ import {
 /**
  * Memoized single message component to prevent re-renders
  */
-const ChatMessage = memo(({ message }: { message: { id: string; role: string; content: string } }) => {
+const ChatMessage = memo(({ 
+  message, 
+  onViewDraft 
+}: { 
+  message: { 
+    id: string; 
+    role: string; 
+    content: string; 
+    intent?: string;
+    draftId?: string;
+    draftVersion?: number;
+  };
+  onViewDraft?: (draftId: string, version?: number) => void;
+}) => {
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(message.content);
   }, [message.content]);
 
+  const handleViewDraft = useCallback(() => {
+    if (message.draftId && onViewDraft) {
+      console.log('🔘 View Draft clicked:', { draftId: message.draftId, version: message.draftVersion });
+      onViewDraft(message.draftId, message.draftVersion);
+    }
+  }, [message.draftId, message.draftVersion, onViewDraft]);
+
+  const showDraftButton = message.role === "assistant" && 
+                          (message.intent === 'draft' || message.intent === 'edit') && 
+                          message.draftId;
+  
+  if (message.role === "assistant") {
+    console.log('🎯 Message:', message.id, {
+      intent: message.intent,
+      draftId: message.draftId,
+      version: message.draftVersion,
+      showButton: showDraftButton
+    });
+  }
+
   return (
-    <div
-      className={`flex ${
-        message.role === "user" ? "justify-end" : "justify-start"
-      }`}
-    >
-      <div
-        className={`max-w-2xl rounded-lg px-4 py-3 ${
-          message.role === "user"
-            ? "bg-primary text-primary-foreground"
-            : "bg-muted text-foreground"
-        }`}
-      >
-        <div className="text-sm">
-          {message.role === "assistant" ? (
-            <MarkdownMessage content={message.content} />
-          ) : (
-            <p className="whitespace-pre-wrap break-words">{message.content}</p>
-          )}
-        </div>
-        
-        {/* Message actions */}
-        {message.role === "assistant" && (
-          <div className="flex gap-2 mt-3 pt-2 border-t border-border">
-            <button
-              onClick={handleCopy}
-              className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-              title="Copy message"
-            >
-              <Copy className="h-3 w-3" />
-              Copy
-            </button>
+    <div className="w-full flex justify-center">
+      <div className="max-w-4xl w-full px-6">
+        <div
+          className={`flex ${
+            message.role === "user" ? "justify-end" : "justify-start"
+          }`}
+        >
+          <div
+            className={`rounded-lg px-4 py-3 ${
+              message.role === "user"
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-foreground"
+            }`}
+          >
+            <div className="text-sm">
+              {message.role === "assistant" ? (
+                <MarkdownMessage content={message.content} />
+              ) : (
+                <p className="whitespace-pre-wrap break-words">{message.content}</p>
+              )}
+            </div>
+            
+            {/* Message actions */}
+            {message.role === "assistant" && (
+              <div className="flex gap-2 mt-3 pt-2 border-t border-border">
+                <button
+                  onClick={handleCopy}
+                  className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                  title="Copy message"
+                >
+                  <Copy className="h-3 w-3" />
+                  Copy
+                </button>
+                
+                {/* View Draft CTA */}
+                {showDraftButton && (
+                  <button
+                    onClick={handleViewDraft}
+                    className="text-xs bg-primary text-primary-foreground hover:bg-primary/90 flex items-center gap-1 px-2 py-1 rounded transition-colors"
+                    title="View this draft in the sidebar"
+                  >
+                    <FileText className="h-3 w-3" />
+                    View {message.intent === 'edit' && message.draftVersion ? `v${message.draftVersion}` : 'Draft'}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
@@ -79,11 +129,17 @@ ChatMessage.displayName = 'ChatMessage';
 /**
  * Memoized message list to prevent re-rendering all messages
  */
-const MessageList = memo(({ messages }: { messages: any[] }) => {
+const MessageList = memo(({ 
+  messages, 
+  onViewDraft 
+}: { 
+  messages: any[]; 
+  onViewDraft: (draftId: string, version?: number) => void;
+}) => {
   return (
     <>
       {messages.map((message) => (
-        <ChatMessage key={message.id} message={message} />
+        <ChatMessage key={message.id} message={message} onViewDraft={onViewDraft} />
       ))}
     </>
   );
@@ -103,8 +159,13 @@ export default function Create() {
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [isDraftPanelCollapsed, setIsDraftPanelCollapsed] = useState(false);
+  const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
+  const [selectedDraftVersion, setSelectedDraftVersion] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  
+  // Map message IDs to draft metadata
+  const messageDraftMap = useRef<Map<string, { draftId: string; version: number; intent: string }>>(new Map());
   
   // AI chat state
   const { messages, isLoading, error, currentIntent, sendMessage, clearChat } = useAIChat({
@@ -118,7 +179,37 @@ export default function Create() {
   const isDraftMode = currentIntent === 'draft' && isChatActive;
   const hasDrafts = drafts.length > 0;
   
+  /**
+   * Enrich messages with draft metadata
+   * Note: depends on drafts to trigger re-enrichment when new drafts/versions are created
+   */
+  const enrichedMessages = useMemo(() => {
+    return messages.map(msg => {
+      const draftInfo = messageDraftMap.current.get(msg.id);
+      if (draftInfo) {
+        console.log('🔗 Enriching message', msg.id, 'with draft info:', draftInfo);
+        return {
+          ...msg,
+          intent: draftInfo.intent,
+          draftId: draftInfo.draftId,
+          draftVersion: draftInfo.version
+        };
+      }
+      return msg;
+    });
+  }, [messages, drafts]);
 
+  /**
+   * Handle viewing a draft from a message CTA button
+   */
+  const handleViewDraft = useCallback((draftId: string, version?: number) => {
+    // Expand the draft panel if collapsed
+    setIsDraftPanelCollapsed(false);
+    
+    // Select the draft and version
+    setSelectedDraftId(draftId);
+    setSelectedDraftVersion(version ?? null);
+  }, []);
 
   /**
    * Handle sending a message (memoized to prevent re-creation)
@@ -183,28 +274,93 @@ export default function Create() {
   }, [messages, isLoading, isChatActive, scrollToBottom]);
 
   /**
-   * Auto-save draft when AI generates content in draft mode
+   * Auto-save draft when AI generates content
+   * Handles both:
+   * 1. New drafts (draft intent) - creates new draft
+   * 2. Edit versions (edit intent on existing draft) - creates v2, v3, etc.
    */
   useEffect(() => {
-    if (isDraftMode && !isLoading && messages.length > 0) {
+    if (!isLoading && messages.length > 0 && (currentIntent === 'draft' || currentIntent === 'edit')) {
       const lastAssistantMessage = messages.filter(m => m.role === 'assistant').pop();
-      if (lastAssistantMessage?.content) {
+      const lastUserMessage = messages.filter(m => m.role === 'user').pop();
+      
+      if (!lastAssistantMessage?.content) return;
+
+      // Import versioning utilities
+      const { 
+        createDraft, 
+        createDraftVersion, 
+        extractDraftFromEditResponse,
+        isFollowUpQuestion 
+      } = require('@/lib/draftVersioning');
+
+      // If it's a follow-up question, don't save as draft
+      if (isFollowUpQuestion(lastAssistantMessage.content)) {
+        console.log('🤔 AI asked a follow-up question, not saving as draft');
+        return;
+      }
+
+      if (currentIntent === 'draft') {
+        // NEW DRAFT: Create a new draft with v1
         const draftId = `draft-${lastAssistantMessage.id}`;
-        // Only add if this draft doesn't exist yet
         setDrafts(prev => {
           const exists = prev.some(d => d.id === draftId);
           if (exists) return prev;
-          return [...prev, {
-            id: draftId,
-            content: lastAssistantMessage.content,
-            timestamp: new Date(),
-          }];
+          
+          const newDraft = createDraft(
+            lastAssistantMessage.id,
+            lastAssistantMessage.content,
+            new Date()
+          );
+          
+          console.log('📝 Created new draft:', newDraft.id);
+          
+          // Store message-draft mapping
+          messageDraftMap.current.set(lastAssistantMessage.id, {
+            draftId: newDraft.id,
+            version: 1,
+            intent: 'draft'
+          });
+          
+          return [...prev, newDraft];
         });
-        // Expand panel when new draft is created
+        setIsDraftPanelCollapsed(false);
+        
+      } else if (currentIntent === 'edit' && drafts.length > 0) {
+        // EDIT VERSION: Create a new version of the most recent draft
+        const { content, changes } = extractDraftFromEditResponse(lastAssistantMessage.content);
+        
+        setDrafts(prev => {
+          if (prev.length === 0) return prev;
+          
+          // Get the most recent draft (last in array)
+          const targetDraft = prev[prev.length - 1];
+          
+          // Create new version
+          const updatedDraft = createDraftVersion(
+            targetDraft,
+            content,
+            lastUserMessage?.content || 'Edit request',
+            changes,
+            new Date()
+          );
+          
+          console.log(`📝 Created draft version ${updatedDraft.currentVersion} for ${updatedDraft.id}`);
+          
+          // Store message-draft mapping
+          messageDraftMap.current.set(lastAssistantMessage.id, {
+            draftId: updatedDraft.id,
+            version: updatedDraft.currentVersion,
+            intent: 'edit'
+          });
+          
+          // Replace the draft with updated version
+          return [...prev.slice(0, -1), updatedDraft];
+        });
         setIsDraftPanelCollapsed(false);
       }
     }
-  }, [isDraftMode, isLoading, messages]);
+  }, [isLoading, messages, currentIntent, drafts.length]);
 
   return (
     <AppLayout>
@@ -338,6 +494,8 @@ export default function Create() {
                       organizationName={selectedOrganization?.name || ''}
                       organizationImage={undefined}
                       isCollapsed={isDraftPanelCollapsed}
+                      selectedDraftId={selectedDraftId}
+                      selectedVersion={selectedDraftVersion}
                       onToggle={() => setIsDraftPanelCollapsed(!isDraftPanelCollapsed)}
                       onDeleteDraft={(id) => setDrafts(prev => prev.filter(d => d.id !== id))}
                       onCopyDraft={(content) => navigator.clipboard.writeText(content)}
@@ -349,15 +507,19 @@ export default function Create() {
                     ref={messagesContainerRef}
                     className="flex-1 overflow-y-auto p-6 pb-44 space-y-4"
                   >
-                    <MessageList messages={messages} />
+                    <MessageList messages={enrichedMessages} onViewDraft={handleViewDraft} />
 
                   {/* Loading indicator */}
                   {isLoading && (
-                    <div className="flex justify-start">
-                      <div className="bg-gray-100 text-gray-800 rounded-lg px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <LoaderIcon className="h-4 w-4 animate-spin" />
-                          <span className="text-sm text-gray-600">Thinking...</span>
+                    <div className="w-full flex justify-center">
+                      <div className="max-w-4xl w-full px-6">
+                        <div className="flex justify-start">
+                          <div className="bg-gray-100 text-gray-800 rounded-lg px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <LoaderIcon className="h-4 w-4 animate-spin" />
+                              <span className="text-sm text-gray-600">Thinking...</span>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -365,9 +527,13 @@ export default function Create() {
 
                   {/* Error message */}
                   {error && (
-                    <div className="flex justify-start">
-                      <div className="bg-red-50 text-red-700 rounded-lg px-4 py-3 border border-red-200">
-                        <p className="text-sm">{error}</p>
+                    <div className="w-full flex justify-center">
+                      <div className="max-w-4xl w-full px-6">
+                        <div className="flex justify-start">
+                          <div className="bg-red-50 text-red-700 rounded-lg px-4 py-3 border border-red-200">
+                            <p className="text-sm">{error}</p>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -390,7 +556,7 @@ export default function Create() {
                   transition: 'left 300ms ease-in-out, transform 500ms ease-in-out, opacity 500ms ease-in-out'
                 }}
               >
-                <div className="max-w-3xl mx-auto pr-6">
+                <div className="max-w-4xl mx-auto px-6">
                   <div className="bg-card rounded-2xl border border-border shadow-lg hover:shadow-xl transition-all">
                       <Textarea
                         placeholder="Continue the conversation..."

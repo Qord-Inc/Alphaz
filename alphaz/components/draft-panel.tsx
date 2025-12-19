@@ -1,14 +1,25 @@
 'use client';
 
-import { useState, memo, useCallback } from 'react';
+import { useState, memo, useCallback, useEffect } from 'react';
 import { LinkedInPostPreview } from './linkedin-post-preview';
 import { ChevronLeft, ChevronRight, FileText, Trash2, Copy, Download, Check } from 'lucide-react';
+
+export interface DraftVersion {
+  version: number;
+  content: string;
+  timestamp: Date;
+  changes?: string[];
+  editPrompt?: string;
+}
 
 export interface Draft {
   id: string;
   content: string;
   timestamp: Date;
   title?: string;
+  versions: DraftVersion[];
+  currentVersion: number;
+  parentMessageId?: string;
 }
 
 interface DraftPanelProps {
@@ -16,6 +27,8 @@ interface DraftPanelProps {
   organizationName: string;
   organizationImage?: string;
   isCollapsed: boolean;
+  selectedDraftId?: string | null;
+  selectedVersion?: number | null;
   onToggle: () => void;
   onDeleteDraft: (id: string) => void;
   onCopyDraft: (content: string) => void;
@@ -26,15 +39,38 @@ export const DraftPanel = memo(({
   organizationName, 
   organizationImage,
   isCollapsed,
+  selectedDraftId,
+  selectedVersion: externalSelectedVersion,
   onToggle,
   onDeleteDraft,
   onCopyDraft,
 }: DraftPanelProps) => {
   const [selectedDraftIndex, setSelectedDraftIndex] = useState(drafts.length - 1);
+  const [selectedVersion, setSelectedVersion] = useState<number | null>(null); // null means current version
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  
+  // Auto-select draft when selectedDraftId changes
+  useEffect(() => {
+    if (selectedDraftId) {
+      const index = drafts.findIndex(d => d.id === selectedDraftId);
+      if (index !== -1) {
+        setSelectedDraftIndex(index);
+        // Set the version from external prop, or null for current version
+        setSelectedVersion(externalSelectedVersion ?? null);
+      }
+    }
+  }, [selectedDraftId, externalSelectedVersion, drafts]);
 
   const selectedDraft = drafts[selectedDraftIndex];
   const hasDrafts = drafts.length > 0;
+  
+  // Get the content to display (current version or selected historical version)
+  const displayContent = selectedDraft && selectedVersion !== null && selectedVersion !== selectedDraft.currentVersion
+    ? selectedDraft.versions.find(v => v.version === selectedVersion)?.content || selectedDraft.content
+    : selectedDraft?.content;
+    
+  // Has multiple versions?
+  const hasVersions = selectedDraft && selectedDraft.versions.length > 1;
 
   const handleCopy = useCallback((draft: Draft) => {
     onCopyDraft(draft.content);
@@ -148,10 +184,58 @@ export const DraftPanel = memo(({
           <div className="flex-1 overflow-y-auto p-6">
             {selectedDraft && (
               <div className="space-y-4">
+                {/* Version Selector - Only show if draft has multiple versions */}
+                {hasVersions && (
+                  <div className="bg-card border border-border rounded-lg p-3">
+                    <div className="text-xs font-medium text-muted-foreground mb-2">
+                      Version History ({selectedDraft.versions.length} versions)
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedDraft.versions.map((version) => {
+                        const isSelected = selectedVersion === version.version || 
+                                         (selectedVersion === null && version.version === selectedDraft.currentVersion);
+                        return (
+                          <button
+                            key={version.version}
+                            onClick={() => setSelectedVersion(version.version)}
+                            className={`
+                              px-3 py-1.5 rounded-md text-xs font-medium transition-all
+                              ${isSelected
+                                ? 'bg-primary text-primary-foreground'
+                                : 'bg-muted text-muted-foreground hover:bg-muted-foreground/10'
+                              }
+                            `}
+                            title={version.editPrompt || `Version ${version.version}`}
+                          >
+                            v{version.version}
+                            {version.version === selectedDraft.currentVersion && (
+                              <span className="ml-1 text-xs opacity-75">(current)</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {/* Show changes for selected version */}
+                    {selectedVersion && selectedDraft.versions.find(v => v.version === selectedVersion)?.changes && (
+                      <div className="mt-3 pt-3 border-t border-border">
+                        <div className="text-xs font-medium text-muted-foreground mb-1">Changes made:</div>
+                        <ul className="text-xs text-foreground space-y-1">
+                          {selectedDraft.versions.find(v => v.version === selectedVersion)!.changes!.map((change, i) => (
+                            <li key={i} className="flex items-start gap-1">
+                              <span className="text-primary mt-0.5">•</span>
+                              <span>{change}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+                
                 <LinkedInPostPreview
                   organizationName={organizationName}
                   organizationImage={organizationImage}
-                  postContent={selectedDraft.content}
+                  postContent={displayContent || selectedDraft.content}
                   timestamp={new Date(selectedDraft.timestamp).toLocaleTimeString([], {
                     hour: '2-digit',
                     minute: '2-digit',
