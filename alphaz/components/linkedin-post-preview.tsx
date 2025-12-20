@@ -1,22 +1,66 @@
 'use client';
 
 import { Building2 } from 'lucide-react';
-import { memo } from 'react';
+import { memo, useState, useCallback } from 'react';
+import { InlineEditPopup } from './inline-edit-popup';
 
 interface LinkedInPostPreviewProps {
   organizationName: string;
   organizationImage?: string;
   postContent: string;
   timestamp?: string;
+  enableInlineEdit?: boolean;
+  onInlineEdit?: (instruction: string, selectedText: string) => void;
 }
 
 export const LinkedInPostPreview = memo(({ 
   organizationName, 
   organizationImage, 
   postContent,
-  timestamp = 'Just now'
+  timestamp = 'Just now',
+  enableInlineEdit = false,
+  onInlineEdit
 }: LinkedInPostPreviewProps) => {
+  const [selectedText, setSelectedText] = useState('');
+  const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
+
+  const handleTextSelection = useCallback(() => {
+    if (!enableInlineEdit) return;
+
+    const selection = window.getSelection();
+    const text = selection?.toString().trim();
+    
+    if (text && text.length > 0) {
+      // Get selection position
+      const range = selection?.getRangeAt(0);
+      const rect = range?.getBoundingClientRect();
+      
+      if (rect) {
+        setSelectedText(text);
+        // Position popup below the selection
+        setPopupPosition({
+          x: rect.left,
+          y: rect.bottom + window.scrollY + 8
+        });
+      }
+    }
+  }, [enableInlineEdit]);
+
+  const handleClosePopup = useCallback(() => {
+    setSelectedText('');
+    setPopupPosition(null);
+    window.getSelection()?.removeAllRanges();
+  }, []);
+
+  const handleInlineEditSubmit = useCallback((instruction: string, selectedText: string) => {
+    if (onInlineEdit) {
+      onInlineEdit(instruction, selectedText);
+    }
+    handleClosePopup();
+  }, [onInlineEdit, handleClosePopup]);
+
   return (
+    <>
     <div className="bg-card rounded-lg border border-border shadow-sm overflow-hidden">
       {/* Post Header */}
       <div className="p-4">
@@ -60,7 +104,12 @@ export const LinkedInPostPreview = memo(({
 
       {/* Post Content */}
       <div className="px-4 pb-3">
-        <div className="text-sm text-foreground whitespace-pre-wrap break-words leading-relaxed">
+        <div 
+          className={`text-sm text-foreground whitespace-pre-wrap break-words leading-relaxed ${
+            enableInlineEdit ? 'select-text cursor-text' : ''
+          }`}
+          onMouseUp={handleTextSelection}
+        >
           {postContent || (
             <span className="text-muted-foreground italic">
               Your post content will appear here...
@@ -68,6 +117,16 @@ export const LinkedInPostPreview = memo(({
           )}
         </div>
       </div>
+      
+      {/* Inline Edit Popup */}
+      {popupPosition && selectedText && (
+        <InlineEditPopup
+          selectedText={selectedText}
+          position={popupPosition}
+          onSubmit={handleInlineEditSubmit}
+          onClose={handleClosePopup}
+        />
+      )}
 
       {/* Post Stats */}
       <div className="px-4 py-2 border-t border-border">
@@ -124,6 +183,7 @@ export const LinkedInPostPreview = memo(({
         </div>
       </div>
     </div>
+    </>
   );
 });
 

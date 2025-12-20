@@ -199,18 +199,18 @@ export function isFollowUpQuestion(content: string): boolean {
     return false; // It's a structured edit response
   }
   
-  const questionPatterns = [
-    /\?/m, // Contains question mark anywhere
-    /^(Could you|Can you|Would you|Should I|Do you want|Do you mean)/i,
-    /clarify/i,
-    /which (one|type|style|tone|version|approach)/i,
-    /what do you mean/i,
-    /more specific/i,
-    /^(What|Which|How|When|Where|Why)/i, // Question words at start
-    /help me understand/i,
-    /not sure (what|which|how)/i,
-  ];
+  // If content is long (>300 chars), it's likely a draft, not a question
+  if (content.length > 300) {
+    return false;
+  }
   
-  return questionPatterns.some(pattern => pattern.test(content)) && 
-         content.length < 800; // Follow-up questions are usually short
+  // Check if it starts with a question word (strong indicator of clarifying question)
+  const startsWithQuestion = /^(Could you|Can you|Would you|Should I|Do you want|Do you mean|What|Which|How|Why|Where|When)/i.test(content.trim());
+  
+  // Check for clarification phrases
+  const hasClarificationPhrase = /clarify|which (one|type|style|tone|version|approach)|what do you mean|more specific|help me understand|not sure (what|which|how)/i.test(content);
+  
+  // Only return true if it STARTS with a question OR has clarification phrases
+  // A question mark at the end alone is not enough (drafts can end with questions)
+  return startsWithQuestion || hasClarificationPhrase;
 }

@@ -32,6 +32,7 @@ interface DraftPanelProps {
   onToggle: () => void;
   onDeleteDraft: (id: string) => void;
   onCopyDraft: (content: string) => void;
+  onInlineEdit?: (instruction: string, selectedText: string) => void;
 }
 
 export const DraftPanel = memo(({ 
@@ -44,6 +45,7 @@ export const DraftPanel = memo(({
   onToggle,
   onDeleteDraft,
   onCopyDraft,
+  onInlineEdit,
 }: DraftPanelProps) => {
   const [selectedDraftIndex, setSelectedDraftIndex] = useState(drafts.length - 1);
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null); // null means current version
@@ -95,20 +97,20 @@ export const DraftPanel = memo(({
   return (
     <div 
       className={`
-        relative transition-all duration-300 ease-in-out border-r border-border bg-muted/30
+        relative transition-all duration-300 ease-in-out border-l border-border bg-muted/30
         ${isCollapsed ? 'w-12' : 'w-[600px]'}
       `}
     >
       {/* Collapse/Expand Button */}
       <button
         onClick={onToggle}
-        className="absolute -right-3 top-6 z-20 w-6 h-6 bg-card border border-border rounded-full shadow-sm hover:shadow-md transition-all flex items-center justify-center text-muted-foreground hover:text-foreground"
+        className="absolute -left-3 top-6 z-20 w-6 h-6 bg-card border border-border rounded-full shadow-sm hover:shadow-md transition-all flex items-center justify-center text-muted-foreground hover:text-foreground"
         title={isCollapsed ? 'Expand drafts' : 'Collapse drafts'}
       >
         {isCollapsed ? (
-          <ChevronRight className="h-3 w-3" />
-        ) : (
           <ChevronLeft className="h-3 w-3" />
+        ) : (
+          <ChevronRight className="h-3 w-3" />
         )}
       </button>
 
@@ -240,6 +242,8 @@ export const DraftPanel = memo(({
                     hour: '2-digit',
                     minute: '2-digit',
                   })}
+                  enableInlineEdit={true}
+                  onInlineEdit={onInlineEdit}
                 />
 
                 {/* Draft Actions */}

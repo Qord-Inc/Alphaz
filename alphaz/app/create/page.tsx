@@ -179,12 +179,23 @@ export default function Create() {
   const isDraftMode = currentIntent === 'draft' && isChatActive;
   const hasDrafts = drafts.length > 0;
   
+  // Debug logging
+  console.log('📊 Create Page State:', {
+    messagesCount: messages.length,
+    draftsCount: drafts.length,
+    hasDrafts,
+    currentIntent,
+    isLoading,
+    isDraftPanelCollapsed
+  });
+  
   /**
    * Enrich messages with draft metadata
    * Note: depends on drafts to trigger re-enrichment when new drafts/versions are created
    */
   const enrichedMessages = useMemo(() => {
-    return messages.map(msg => {
+    console.log('🔄 Enriching messages, map size:', messageDraftMap.current.size);
+    const enriched = messages.map(msg => {
       const draftInfo = messageDraftMap.current.get(msg.id);
       if (draftInfo) {
         console.log('🔗 Enriching message', msg.id, 'with draft info:', draftInfo);
@@ -197,6 +208,8 @@ export default function Create() {
       }
       return msg;
     });
+    console.log('📨 Enriched messages:', enriched.filter(m => m.intent).map(m => ({ id: m.id, intent: m.intent })));
+    return enriched;
   }, [messages, drafts]);
 
   /**
@@ -210,6 +223,19 @@ export default function Create() {
     setSelectedDraftId(draftId);
     setSelectedDraftVersion(version ?? null);
   }, []);
+
+  /**
+   * Handle inline edit of selected text from draft
+   */
+  const handleInlineEdit = useCallback(async (instruction: string, selectedText: string) => {
+    if (!drafts.length) return;
+    
+    // Create a special message format for inline edits
+    const inlineEditMessage = `Edit the following selected text: "${selectedText}"\n\nInstruction: ${instruction}\n\nPlease change only what asked and rewrite the post`;
+    
+    // Send the inline edit as a message
+    await sendMessage(inlineEditMessage);
+  }, [drafts, sendMessage]);
 
   /**
    * Handle sending a message (memoized to prevent re-creation)
@@ -257,10 +283,17 @@ export default function Create() {
   /**
    * Auto-scroll to bottom when messages change
    */
-  const scrollToBottom = useCallback(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    }
+  const scrollToBottom = useCallback((force = false) => {
+    // Use requestAnimationFrame to ensure DOM has updated
+    requestAnimationFrame(() => {
+      if (messagesContainerRef.current) {
+        // Scroll the container to bottom
+        messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+      } else if (messagesEndRef.current) {
+        // Fallback to scrollIntoView
+        messagesEndRef.current.scrollIntoView({ behavior: force ? 'auto' : 'smooth', block: 'end' });
+      }
+    });
   }, []);
 
   /**
@@ -268,10 +301,24 @@ export default function Create() {
    */
   useEffect(() => {
     if (isChatActive) {
-      // Small delay to ensure DOM has updated
-      setTimeout(scrollToBottom, 100);
+      // Immediate scroll for user messages, smooth for AI responses
+      const isUserMessage = messages.length > 0 && messages[messages.length - 1]?.role === 'user';
+      scrollToBottom(isUserMessage);
     }
   }, [messages, isLoading, isChatActive, scrollToBottom]);
+  
+  /**
+   * Scroll to bottom immediately when user sends a message
+   */
+  useEffect(() => {
+    if (messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage.role === 'user') {
+        // Force immediate scroll for user messages
+        setTimeout(() => scrollToBottom(true), 0);
+      }
+    }
+  }, [messages.length, scrollToBottom]);
 
   /**
    * Auto-save draft when AI generates content
@@ -280,11 +327,27 @@ export default function Create() {
    * 2. Edit versions (edit intent on existing draft) - creates v2, v3, etc.
    */
   useEffect(() => {
+    console.log('🎯 Auto-save effect triggered:', { 
+      isLoading, 
+      messagesCount: messages.length, 
+      currentIntent,
+      shouldProcess: !isLoading && messages.length > 0 && (currentIntent === 'draft' || currentIntent === 'edit')
+    });
+    
     if (!isLoading && messages.length > 0 && (currentIntent === 'draft' || currentIntent === 'edit')) {
       const lastAssistantMessage = messages.filter(m => m.role === 'assistant').pop();
       const lastUserMessage = messages.filter(m => m.role === 'user').pop();
       
-      if (!lastAssistantMessage?.content) return;
+      console.log('💬 Last messages:', { 
+        assistant: lastAssistantMessage?.id, 
+        assistantContentLength: lastAssistantMessage?.content?.length,
+        user: lastUserMessage?.id 
+      });
+      
+      if (!lastAssistantMessage?.content) {
+        console.log('⚠️ No assistant message content, returning');
+        return;
+      }
 
       // Import versioning utilities
       const { 
@@ -303,9 +366,14 @@ export default function Create() {
       if (currentIntent === 'draft') {
         // NEW DRAFT: Create a new draft with v1
         const draftId = `draft-${lastAssistantMessage.id}`;
+        console.log('🔍 Attempting to create draft:', { draftId, messageId: lastAssistantMessage.id });
+        
         setDrafts(prev => {
           const exists = prev.some(d => d.id === draftId);
-          if (exists) return prev;
+          if (exists) {
+            console.log('⚠️ Draft already exists:', draftId);
+            return prev;
+          }
           
           const newDraft = createDraft(
             lastAssistantMessage.id,
@@ -313,7 +381,7 @@ export default function Create() {
             new Date()
           );
           
-          console.log('📝 Created new draft:', newDraft.id);
+          console.log('✅ Created new draft:', newDraft.id, 'Total drafts:', prev.length + 1);
           
           // Store message-draft mapping
           messageDraftMap.current.set(lastAssistantMessage.id, {
@@ -322,8 +390,11 @@ export default function Create() {
             intent: 'draft'
           });
           
-          return [...prev, newDraft];
+          const updatedDrafts = [...prev, newDraft];
+          console.log('📋 Updated drafts array:', updatedDrafts.map(d => d.id));
+          return updatedDrafts;
         });
+        console.log('🔓 Setting draft panel collapsed to false');
         setIsDraftPanelCollapsed(false);
         
       } else if (currentIntent === 'edit' && drafts.length > 0) {
@@ -370,6 +441,14 @@ export default function Create() {
           {/* Header */}
           <div className="flex items-center justify-between p-4 border-b border-border bg-card">
             <div className="flex items-center gap-2">
+              <Button 
+                variant="ghost" 
+                size="icon"
+                onClick={() => setShowThreadsPanel(!showThreadsPanel)}
+                title="Chat History"
+              >
+                <Menu className="h-5 w-5" />
+              </Button>
               {selectedOrganization ? (
                 <>
                   <Building2 className="h-5 w-5 text-blue-600 dark:text-blue-400" />
@@ -390,14 +469,6 @@ export default function Create() {
                 title="New Chat"
               >
                 <Plus className="h-5 w-5" />
-              </Button>
-              <Button 
-                variant="ghost" 
-                size="icon"
-                onClick={() => setShowThreadsPanel(!showThreadsPanel)}
-                title="Chat History"
-              >
-                <Menu className="h-5 w-5" />
               </Button>
             </div>
           </div>
@@ -487,22 +558,7 @@ export default function Create() {
               {(isChatActive || isTransitioning) && (
                 // Chat messages area with draft panel
                 <div className="flex-1 flex overflow-hidden relative">
-                  {/* Draft Panel - Left Side */}
-                  {hasDrafts && (
-                    <DraftPanel
-                      drafts={drafts}
-                      organizationName={selectedOrganization?.name || ''}
-                      organizationImage={undefined}
-                      isCollapsed={isDraftPanelCollapsed}
-                      selectedDraftId={selectedDraftId}
-                      selectedVersion={selectedDraftVersion}
-                      onToggle={() => setIsDraftPanelCollapsed(!isDraftPanelCollapsed)}
-                      onDeleteDraft={(id) => setDrafts(prev => prev.filter(d => d.id !== id))}
-                      onCopyDraft={(content) => navigator.clipboard.writeText(content)}
-                    />
-                  )}
-                  
-                  {/* Chat Messages - Right Side (or full width) */}
+                  {/* Chat Messages - Left Side (or full width) */}
                   <div 
                     ref={messagesContainerRef}
                     className="flex-1 overflow-y-auto p-6 pb-44 space-y-4"
@@ -541,19 +597,35 @@ export default function Create() {
                     {/* Invisible element at the end for auto-scroll */}
                     <div ref={messagesEndRef} />
                   </div>
+                  
+                  {/* Draft Panel - Right Side */}
+                  {hasDrafts && (
+                    <DraftPanel
+                      drafts={drafts}
+                      organizationName={selectedOrganization?.name || ''}
+                      organizationImage={undefined}
+                      isCollapsed={isDraftPanelCollapsed}
+                      selectedDraftId={selectedDraftId}
+                      selectedVersion={selectedDraftVersion}
+                      onToggle={() => setIsDraftPanelCollapsed(!isDraftPanelCollapsed)}
+                      onDeleteDraft={(id) => setDrafts(prev => prev.filter(d => d.id !== id))}
+                      onCopyDraft={(content) => navigator.clipboard.writeText(content)}
+                      onInlineEdit={handleInlineEdit}
+                    />
+                  )}
                 </div>
               )}
 
               {/* Input Area - Floating textbox when chat is active */}
               <div 
-                className={`absolute bottom-0 right-0 p-6 pb-8 transition-all duration-500 ease-in-out ${
+                className={`absolute bottom-0 left-0 p-6 pb-8 transition-all duration-500 ease-in-out ${
                   isChatActive || isTransitioning
                     ? 'translate-y-0 opacity-100'
                     : 'translate-y-full opacity-0 pointer-events-none'
                 }`}
                 style={{
-                  left: hasDrafts && !isDraftPanelCollapsed ? '600px' : '0',
-                  transition: 'left 300ms ease-in-out, transform 500ms ease-in-out, opacity 500ms ease-in-out'
+                  right: hasDrafts && !isDraftPanelCollapsed ? '600px' : '0',
+                  transition: 'right 300ms ease-in-out, transform 500ms ease-in-out, opacity 500ms ease-in-out'
                 }}
               >
                 <div className="max-w-4xl mx-auto px-6">
@@ -603,8 +675,8 @@ export default function Create() {
 
         {/* Chat Info Panel (Slide-out) */}
         <div 
-          className={`absolute right-0 top-0 h-full w-80 bg-card border-l border-border shadow-lg transform transition-transform duration-300 ease-in-out z-10 ${
-            showThreadsPanel ? 'translate-x-0' : 'translate-x-full'
+          className={`absolute left-0 top-0 h-full w-80 bg-card border-r border-border shadow-lg transform transition-transform duration-300 ease-in-out z-10 ${
+            showThreadsPanel ? 'translate-x-0' : '-translate-x-full'
           }`}
         >
           {/* Panel Header */}
