@@ -574,6 +574,62 @@ async function getCompanyPages(req, res) {
   }
 }
 
+// Post content to LinkedIn as an organization
+async function postOrganizationUpdate(req, res) {
+  try {
+    const { clerkUserId, organizationId, content } = req.body || {};
+
+    if (!clerkUserId || !organizationId || !content) {
+      return res.status(400).json({ error: 'clerkUserId, organizationId, and content are required' });
+    }
+
+    // Get access token (validates expiry)
+    const tokenResult = await getLinkedInAccessToken(clerkUserId);
+    if (!tokenResult.success) {
+      return res.status(400).json({ error: tokenResult.error || 'LinkedIn not connected' });
+    }
+
+    const accessToken = tokenResult.accessToken;
+    const authorUrn = `urn:li:organization:${organizationId}`;
+
+    const payload = {
+      author: authorUrn,
+      lifecycleState: 'PUBLISHED',
+      specificContent: {
+        'com.linkedin.ugc.ShareContent': {
+          shareCommentary: { text: content },
+          shareMediaCategory: 'NONE'
+        }
+      },
+      visibility: {
+        'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC'
+      }
+    };
+
+    try {
+      const response = await axios.post('https://api.linkedin.com/v2/ugcPosts', payload, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'X-Restli-Protocol-Version': '2.0.0',
+          'LinkedIn-Version': '202511',
+          'Content-Type': 'application/json'
+        }
+      });
+
+      return res.status(200).json({ success: true, post: response.data });
+    } catch (postError) {
+      const raw = postError.response?.data;
+      const status = postError.response?.status || 500;
+      const friendlyMessage = raw?.message || raw?.messageText || postError.message || 'Failed to post to LinkedIn';
+      console.error('Error posting to LinkedIn:', raw || postError.message);
+      return res.status(status).json({ error: friendlyMessage, details: raw || postError.message });
+    }
+  } catch (error) {
+    console.error('Error in postOrganizationUpdate:', error);
+    res.status(500).json({ error: 'Internal server error', details: error.message });
+  }
+}
+
 // Refresh LinkedIn token (if needed)
 async function refreshLinkedInToken(req, res) {
   try {
@@ -682,6 +738,7 @@ module.exports = {
   disconnectLinkedIn,
   getLinkedInStatus,
   getCompanyPages,
+  postOrganizationUpdate,
   refreshLinkedInToken,
   debugAcls,
   getLinkedInAccessToken

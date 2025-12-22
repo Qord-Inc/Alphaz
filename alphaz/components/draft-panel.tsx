@@ -2,7 +2,7 @@
 
 import { useState, memo, useCallback, useEffect } from 'react';
 import { LinkedInPostPreview } from './linkedin-post-preview';
-import { ChevronLeft, ChevronRight, FileText, Trash2, Copy, Download, Check, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, FileText, Trash2, Copy, Check, Loader2, Share2 } from 'lucide-react';
 
 export interface DraftVersion {
   version: number;
@@ -39,6 +39,8 @@ interface DraftPanelProps {
   onDeleteDraft: (id: string) => void;
   onCopyDraft: (content: string) => void;
   onInlineEdit?: (instruction: string, selectedText: string) => void;
+  onPostDraft?: (content: string) => Promise<void> | void;
+  isPosting?: boolean;
 }
 
 export const DraftPanel = memo(({ 
@@ -55,6 +57,8 @@ export const DraftPanel = memo(({
   onDeleteDraft,
   onCopyDraft,
   onInlineEdit,
+  onPostDraft,
+  isPosting,
 }: DraftPanelProps) => {
   const [selectedDraftIndex, setSelectedDraftIndex] = useState(drafts.length - 1);
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null); // null means current version
@@ -87,23 +91,14 @@ export const DraftPanel = memo(({
   // Has multiple versions?
   const hasVersions = selectedDraft && selectedDraft.versions.length > 1;
 
-  const handleCopy = useCallback((draft: Draft) => {
-    onCopyDraft(draft.content);
-    setCopiedId(draft.id);
-    setTimeout(() => setCopiedId(null), 2000);
-  }, [onCopyDraft]);
-
-  const handleDownload = useCallback((draft: Draft) => {
-    const blob = new Blob([draft.content], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `linkedin-draft-${new Date(draft.timestamp).toISOString().split('T')[0]}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, []);
+  const handleCopyContent = useCallback(() => {
+    if (!displayContent) return;
+    onCopyDraft(displayContent);
+    if (selectedDraft?.id) {
+      setCopiedId(selectedDraft.id);
+      setTimeout(() => setCopiedId(null), 2000);
+    }
+  }, [displayContent, onCopyDraft, selectedDraft]);
 
   // Show panel if we have drafts OR if streaming content
   if (!hasDrafts && !isStreaming) return null;
@@ -389,6 +384,39 @@ export const DraftPanel = memo(({
               </div>
             )}
           </div>
+
+          {/* Sticky action bar */}
+          {!isCollapsed && (
+            <div className="sticky bottom-0 left-0 right-0 border-t border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:backdrop-blur px-6 py-4">
+              <div className="flex items-center justify-end gap-3">
+                <button
+                  onClick={handleCopyContent}
+                  disabled={!displayContent}
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                    displayContent
+                      ? 'bg-card hover:bg-muted border-border text-foreground'
+                      : 'bg-muted text-muted-foreground cursor-not-allowed border-border'
+                  }`}
+                >
+                  {copiedId === selectedDraft?.id ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                  {copiedId === selectedDraft?.id ? 'Copied' : 'Copy'}
+                </button>
+
+                <button
+                  onClick={() => displayContent && onPostDraft && onPostDraft(displayContent)}
+                  disabled={!displayContent || !onPostDraft || isStreaming || isPosting}
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm ${
+                    !displayContent || !onPostDraft || isStreaming || isPosting
+                      ? 'bg-muted text-muted-foreground cursor-not-allowed'
+                      : 'bg-primary text-primary-foreground hover:bg-primary/90'
+                  }`}
+                >
+                  {isPosting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Share2 className="h-4 w-4" />}
+                  {isPosting ? 'Publishing...' : 'Publish'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
