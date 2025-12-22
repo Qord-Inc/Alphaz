@@ -299,7 +299,20 @@ export default function Create() {
       return genericTitles[idx];
     }
 
-    // Edits (v2+): get first bullet point from content
+    // Edits (v2+): prefer first bullet from the recorded changes
+    const firstChange = versionData?.changes?.[0];
+    if (firstChange) {
+      const cleanedChange = firstChange.replace(/[`*_#]/g, '').trim();
+      if (cleanedChange.length > 0) return cleanedChange;
+    }
+
+    // Next, try to pull a bullet from the edit prompt
+    if (versionData?.editPrompt) {
+      const cleanedPrompt = versionData.editPrompt.replace(/[`*_#]/g, '').trim();
+      if (cleanedPrompt.length > 0) return cleanedPrompt;
+    }
+
+    // Next, try first bullet point from content (fallback)
     const content = versionData?.content || draft.content;
     const firstBullet = getFirstBulletPoint(content);
     if (firstBullet) {
