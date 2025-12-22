@@ -248,6 +248,8 @@ export default function Create() {
   const [selectedDraftVersion, setSelectedDraftVersion] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const [isPostingLinkedIn, setIsPostingLinkedIn] = useState(false);
+  const [postStatus, setPostStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   
   // Streaming state for draft panel
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
@@ -516,6 +518,47 @@ export default function Create() {
     // Send the inline edit as a message
     await sendMessage(inlineEditMessage);
   }, [drafts, sendMessage]);
+
+  /**
+   * Post the current draft to LinkedIn for the selected organization
+   */
+  const handlePostToLinkedIn = useCallback(async (content: string) => {
+    if (!content) return;
+    if (!selectedOrganization) {
+      setPostStatus({ type: 'error', message: 'Select an organization to publish.' });
+      return;
+    }
+    if (!user?.clerk_user_id) {
+      setPostStatus({ type: 'error', message: 'User not loaded yet.' });
+      return;
+    }
+
+    try {
+      setIsPostingLinkedIn(true);
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/linkedin/post`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clerkUserId: user.clerk_user_id,
+          organizationId: selectedOrganization.id,
+          content,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail = typeof data?.details === 'string' ? data.details : (data?.details?.message || data?.details?.messageText);
+        const msg = data?.error || detail || 'Failed to post to LinkedIn';
+        throw new Error(msg);
+      }
+
+      setPostStatus({ type: 'success', message: 'Published to LinkedIn.' });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to publish to LinkedIn';
+      setPostStatus({ type: 'error', message: msg });
+    } finally {
+      setIsPostingLinkedIn(false);
+    }
+  }, [selectedOrganization, user?.clerk_user_id]);
 
   /**
    * Handle sending a message (memoized to prevent re-creation)
@@ -792,6 +835,8 @@ export default function Create() {
                       onDeleteDraft={(id) => setDrafts(prev => prev.filter(d => d.id !== id))}
                       onCopyDraft={(content) => navigator.clipboard.writeText(content)}
                       onInlineEdit={handleInlineEdit}
+                      onPostDraft={handlePostToLinkedIn}
+                      isPosting={isPostingLinkedIn}
                     />
                   )}
                 </div>
@@ -922,6 +967,42 @@ export default function Create() {
             className="absolute inset-0 bg-black/10 z-0"
             onClick={() => setShowThreadsPanel(false)}
           />
+        )}
+
+        {/* Toast / status messages (centered) */}
+        {postStatus && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setPostStatus(null)} />
+            <div
+              className={`relative w-full max-w-md rounded-2xl border shadow-2xl bg-card/95 backdrop-blur px-6 py-5 flex flex-col gap-4 ${
+                postStatus.type === 'success'
+                  ? 'border-emerald-200 dark:border-emerald-900/60'
+                  : 'border-red-200 dark:border-red-900/60'
+              }`}
+              role="alertdialog"
+              aria-live="polite"
+              aria-label={postStatus.type === 'success' ? 'Publish success' : 'Publish error'}
+            >
+              <div className="flex items-start gap-3">
+                <div
+                  className={`mt-1 h-3 w-3 rounded-full ${
+                    postStatus.type === 'success' ? 'bg-emerald-500' : 'bg-red-500'
+                  }`}
+                />
+                <div className="text-base text-foreground leading-relaxed">
+                  {postStatus.message}
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <button
+                  onClick={() => setPostStatus(null)}
+                  className="inline-flex items-center justify-center rounded-md border border-border bg-card px-4 py-2 text-sm font-medium text-foreground hover:bg-muted transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </AppLayout>

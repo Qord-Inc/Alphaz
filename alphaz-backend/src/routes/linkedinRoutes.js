@@ -17,6 +17,9 @@ router.delete('/linkedin/disconnect/:clerkUserId', linkedinController.disconnect
 // Get user's company pages
 router.get('/linkedin/company-pages/:clerkUserId', linkedinController.getCompanyPages);
 
+// Post to LinkedIn as an organization
+router.post('/linkedin/post', linkedinController.postOrganizationUpdate);
+
 // Debug ACLs - raw response from LinkedIn
 router.get('/linkedin/debug-acls/:clerkUserId', linkedinController.debugAcls);
 
