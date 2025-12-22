@@ -12,6 +12,7 @@ export interface ChatMessage {
   timestamp: Date;
   intent?: 'edit' | 'ideate' | 'draft' | 'feedback';
   draftContent?: string; // Clean post content for draft intent
+  isStreamingProgress?: boolean; // True when showing rotating progress text during draft streaming
 }
 
 export interface ContextData {
@@ -179,6 +180,17 @@ export function useAIChat({
         let isFollowUpQuestion = false;
         // Track if we're currently streaming to draft panel
         let streamingToDraft = initialIsDraftIntent;
+        
+        // Progress phrase rotation - time-based for smooth transitions
+        const progressPhrases = [
+          'Generating the draft…',
+          'Polishing your post…',
+          'Shaping your copy…',
+          'Refining tone and flow…',
+          'Adding final touches…',
+        ];
+        let currentPhraseIndex = 0;
+        let lastPhraseChangeTime = Date.now();
 
         if (!reader) {
           throw new Error('Response body is not readable');
@@ -196,6 +208,17 @@ export function useAIChat({
             console.log(`   Final message length: ${fullText.length} chars`);
             console.log(`   Is follow-up question: ${isFollowUpQuestion}`);
             console.log(`   Streaming to draft: ${streamingToDraft}`);
+            
+            // Clear the streaming progress state from message immediately
+            if (streamingToDraft && !isFollowUpQuestion) {
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === assistantMessageId
+                    ? { ...msg, content: '', isStreamingProgress: false }
+                    : msg
+                )
+              );
+            }
             
             // Only call draft completion if it's actually a draft (not a follow-up question)
             if (streamingToDraft && !isFollowUpQuestion && onDraftStreamComplete) {
@@ -237,14 +260,20 @@ export function useAIChat({
             if (onDraftStream) {
               onDraftStream(fullText, detectedIntent as 'draft' | 'edit');
             }
-            // Update chat message with a placeholder/CTA message
-            const ctaMessage = detectedIntent === 'edit' 
-              ? "✨ I've updated your draft. You can see the changes in the preview panel."
-              : "✨ I've created a draft for you. You can view and edit it in the preview panel.";
+            
+            // Time-based phrase rotation (every 1.8 seconds for smooth UX)
+            const now = Date.now();
+            if (now - lastPhraseChangeTime >= 1000) {
+              currentPhraseIndex = (currentPhraseIndex + 1) % progressPhrases.length;
+              lastPhraseChangeTime = now;
+            }
+            
+            const progressText = progressPhrases[currentPhraseIndex];
+
             setMessages((prev) =>
               prev.map((msg) =>
                 msg.id === assistantMessageId
-                  ? { ...msg, content: ctaMessage }
+                  ? { ...msg, content: progressText, isStreamingProgress: true }
                   : msg
               )
             );
