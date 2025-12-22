@@ -33,7 +33,9 @@ import {
  */
 const ChatMessage = memo(({ 
   message, 
-  onViewDraft 
+  onViewDraft,
+  selectedDraftId,
+  selectedDraftVersion,
 }: { 
   message: { 
     id: string; 
@@ -42,8 +44,12 @@ const ChatMessage = memo(({
     intent?: string;
     draftId?: string;
     draftVersion?: number;
+    draftTitle?: string;
+    isStreamingProgress?: boolean;
   };
   onViewDraft?: (draftId: string, version?: number) => void;
+  selectedDraftId?: string | null;
+  selectedDraftVersion?: number | null;
 }) => {
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(message.content);
@@ -56,7 +62,7 @@ const ChatMessage = memo(({
     }
   }, [message.draftId, message.draftVersion, onViewDraft]);
 
-  const showDraftButton = message.role === "assistant" && 
+  const showDraftCTA = message.role === "assistant" && 
                           (message.intent === 'draft' || message.intent === 'edit') && 
                           message.draftId;
   
@@ -65,8 +71,77 @@ const ChatMessage = memo(({
       intent: message.intent,
       draftId: message.draftId,
       version: message.draftVersion,
-      showButton: showDraftButton
+      showCTA: showDraftCTA,
+      draftTitle: message.draftTitle
     });
+  }
+
+  // Render streaming progress card (greyed-out style with smooth text transitions)
+  if (message.isStreamingProgress) {
+    return (
+      <div className="w-full flex justify-center">
+        <div className="max-w-4xl w-full px-6">
+          <div className="flex justify-start">
+            <div className="relative w-full bg-slate-50 dark:bg-muted/50 border border-slate-200 dark:border-border rounded-2xl px-4 py-3">
+              <div className="flex items-center gap-3">
+                <div className="h-5 w-5 rounded-full border-2 border-slate-300 dark:border-slate-500 border-t-slate-500 dark:border-t-slate-300 animate-spin" />
+                <span 
+                  className="text-sm text-slate-500 dark:text-slate-400 transition-opacity duration-500 ease-in-out"
+                  key={message.content} // Key change triggers CSS transition
+                  style={{ animation: 'fadeInText 0.5s ease-in-out' }}
+                >
+                  {message.content}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  
+  // Transition state: draft/edit intent with empty content, waiting for draft info
+  // Don't render anything during this brief transition to avoid flash of empty message
+  const isDraftIntent = message.intent === 'draft' || message.intent === 'edit';
+  if (isDraftIntent && !message.draftId && message.content === '') {
+    return null;
+  }
+
+  // Render CTA card for draft/edit intents
+  if (showDraftCTA) {
+    const title = message.draftTitle || 'Draft';
+    const versionLabel = message.draftVersion ? `Version ${message.draftVersion}` : 'Version 1';
+    
+    // Check if this CTA is the active/selected one
+    const isActive = message.draftId === selectedDraftId && 
+                     message.draftVersion === selectedDraftVersion;
+
+    return (
+      <div className="w-full flex justify-center">
+        <div className="max-w-4xl w-full px-6">
+          <div className="flex justify-start">
+            <button
+              onClick={handleViewDraft}
+              className="relative w-full text-left bg-white dark:bg-card border border-slate-200 dark:border-border rounded-2xl px-4 py-3 shadow-sm hover:shadow-md transition focus:outline-none focus:ring-2 focus:ring-primary/40"
+            >
+              <div className="flex items-start gap-2">
+                <div className="flex-1">
+                  <div className={`text-sm font-medium ${isActive ? 'text-emerald-600' : 'text-slate-600'}`}>
+                    {title}
+                  </div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {versionLabel}
+                  </div>
+                </div>
+                {isActive && (
+                  <span className="mt-1 h-2.5 w-2.5 rounded-full bg-emerald-500" aria-label="active" />
+                )}
+              </div>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -105,7 +180,7 @@ const ChatMessage = memo(({
                 </button>
                 
                 {/* View Draft CTA */}
-                {showDraftButton && (
+                {showDraftCTA && (
                   <button
                     onClick={handleViewDraft}
                     className="text-xs bg-primary text-primary-foreground hover:bg-primary/90 flex items-center gap-1 px-2 py-1 rounded transition-colors"
@@ -131,15 +206,25 @@ ChatMessage.displayName = 'ChatMessage';
  */
 const MessageList = memo(({ 
   messages, 
-  onViewDraft 
+  onViewDraft,
+  selectedDraftId,
+  selectedDraftVersion,
 }: { 
   messages: any[]; 
   onViewDraft: (draftId: string, version?: number) => void;
+  selectedDraftId?: string | null;
+  selectedDraftVersion?: number | null;
 }) => {
   return (
     <>
       {messages.map((message) => (
-        <ChatMessage key={message.id} message={message} onViewDraft={onViewDraft} />
+        <ChatMessage 
+          key={message.id} 
+          message={message} 
+          onViewDraft={onViewDraft}
+          selectedDraftId={selectedDraftId}
+          selectedDraftVersion={selectedDraftVersion}
+        />
       ))}
     </>
   );
@@ -171,6 +256,78 @@ export default function Create() {
   
   // Map message IDs to draft metadata
   const messageDraftMap = useRef<Map<string, { draftId: string; version: number; intent: string }>>(new Map());
+
+  // Helpers for CTA titles
+  const genericTitles = useMemo(() => [
+    'Written the LinkedIn post',
+    'Drafted your LinkedIn post',
+    'Prepared your LinkedIn post',
+    'Composed the LinkedIn post',
+  ], []);
+
+  const stableIndex = useCallback((key: string, mod: number) => {
+    let hash = 0;
+    for (let i = 0; i < key.length; i++) hash = (hash + key.charCodeAt(i)) % 9973;
+    return hash % mod;
+  }, []);
+
+  // Extract first bullet point from content
+  const getFirstBulletPoint = useCallback((content: string) => {
+    // Match lines starting with bullet markers (-, *, •, or numbered like 1.)
+    const bulletRegex = /^[\s]*[-*•]\s*(.+)|^[\s]*\d+\.\s*(.+)/gm;
+    const match = bulletRegex.exec(content);
+    if (match) {
+      const bulletText = (match[1] || match[2] || '').trim();
+      // Clean markdown formatting
+      return bulletText.replace(/[`*_#]/g, '').trim() || 'Edited the post';
+    }
+    return null;
+  }, []);
+
+  // Derive a readable title from draft content and version
+  const getDraftTitle = useCallback((draftId: string, version?: number | null) => {
+    const draft = drafts.find(d => d.id === draftId);
+    if (!draft) return 'Draft';
+
+    // Version handling
+    const targetVersion = version ?? draft.currentVersion;
+    const versionData = draft.versions.find(v => v.version === targetVersion);
+
+    // v1: generic friendly text
+    if (targetVersion === 1) {
+      const idx = stableIndex(draftId, genericTitles.length);
+      return genericTitles[idx];
+    }
+
+    // Edits (v2+): prefer first bullet from the recorded changes
+    const firstChange = versionData?.changes?.[0];
+    if (firstChange) {
+      const cleanedChange = firstChange.replace(/[`*_#]/g, '').trim();
+      if (cleanedChange.length > 0) return cleanedChange;
+    }
+
+    // Next, try to pull a bullet from the edit prompt
+    if (versionData?.editPrompt) {
+      const cleanedPrompt = versionData.editPrompt.replace(/[`*_#]/g, '').trim();
+      if (cleanedPrompt.length > 0) return cleanedPrompt;
+    }
+
+    // Next, try first bullet point from content (fallback)
+    const content = versionData?.content || draft.content;
+    const firstBullet = getFirstBulletPoint(content);
+    if (firstBullet) {
+      return firstBullet;
+    }
+
+    // Fallback: first non-empty line of content
+    const firstLine = (content || '').split('\n').find(l => l.trim().length > 0) || 'Edited the post';
+    const cleaned = firstLine
+      .replace(/^[-*>\s]+/, '')
+      .replace(/[`*_#]/g, '')
+      .trim();
+
+    return cleaned || 'Edited the post';
+  }, [drafts, genericTitles, getFirstBulletPoint, stableIndex]);
   
   /**
    * Handle streaming content from AI (draft/edit intents)
@@ -319,19 +476,21 @@ export default function Create() {
     const enriched = messages.map(msg => {
       const draftInfo = messageDraftMap.current.get(msg.id);
       if (draftInfo) {
-        console.log('🔗 Enriching message', msg.id, 'with draft info:', draftInfo);
+        const draftTitle = getDraftTitle(draftInfo.draftId, draftInfo.version);
+        console.log('🔗 Enriching message', msg.id, 'with draft info:', { ...draftInfo, draftTitle });
         return {
           ...msg,
           intent: draftInfo.intent,
           draftId: draftInfo.draftId,
-          draftVersion: draftInfo.version
+          draftVersion: draftInfo.version,
+          draftTitle,
         };
       }
       return msg;
     });
-    console.log('📨 Enriched messages:', enriched.filter(m => m.intent).map(m => ({ id: m.id, intent: m.intent })));
+    console.log('📨 Enriched messages:', enriched.filter(m => m.intent).map(m => ({ id: m.id, intent: m.intent, draftTitle: (m as any).draftTitle })));
     return enriched;
-  }, [messages, drafts]);
+  }, [messages, drafts, getDraftTitle]);
 
   /**
    * Handle viewing a draft from a message CTA button
@@ -352,7 +511,7 @@ export default function Create() {
     if (!drafts.length) return;
     
     // Create a special message format for inline edits
-    const inlineEditMessage = `Edit the following selected text: "${selectedText}"\n\nInstruction: ${instruction}\n\nPlease change only what asked and rewrite the post`;
+    const inlineEditMessage = `Edit the following selected text and rewrite the whole post: "${selectedText}"\n\nInstruction: ${instruction}\n\nPlease provide the full updated post content.`;
     
     // Send the inline edit as a message
     await sendMessage(inlineEditMessage);
@@ -577,7 +736,12 @@ export default function Create() {
                     ref={messagesContainerRef}
                     className="flex-1 overflow-y-auto p-6 pb-44 space-y-4"
                   >
-                    <MessageList messages={enrichedMessages} onViewDraft={handleViewDraft} />
+                    <MessageList 
+                      messages={enrichedMessages} 
+                      onViewDraft={handleViewDraft}
+                      selectedDraftId={selectedDraftId}
+                      selectedDraftVersion={selectedDraftVersion}
+                    />
 
                   {/* Loading indicator - only show when NOT streaming to draft panel */}
                   {isLoading && !isStreamingDraft && (
