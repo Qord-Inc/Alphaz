@@ -40,6 +40,7 @@ export function useAIChat({
   contextData,
   onDraftStream,
   onDraftStreamComplete,
+  onAIMessageComplete,
 }: {
   organizationId: string;
   clerkUserId: string;
@@ -48,6 +49,8 @@ export function useAIChat({
   onDraftStream?: (content: string, intent: 'draft' | 'edit') => void;
   /** Called when draft streaming is complete */
   onDraftStreamComplete?: (content: string, intent: 'draft' | 'edit', messageId: string) => void;
+  /** Called when any AI message streaming is complete (for persistence) */
+  onAIMessageComplete?: (content: string, intent: string | null, messageId: string) => void;
 }) {
   // State management
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -224,6 +227,11 @@ export function useAIChat({
             if (streamingToDraft && !isFollowUpQuestion && onDraftStreamComplete) {
               onDraftStreamComplete(fullText, detectedIntent as 'draft' | 'edit', assistantMessageId);
             }
+            
+            // Call AI message complete callback for persistence (all messages)
+            if (onAIMessageComplete && fullText.trim()) {
+              onAIMessageComplete(fullText, detectedIntent, assistantMessageId);
+            }
             break;
           }
 
@@ -304,7 +312,7 @@ export function useAIChat({
         setIsLoading(false);
       }
     },
-    [messages, organizationId, clerkUserId, contextData, onDraftStream, onDraftStreamComplete]
+    [messages, organizationId, clerkUserId, contextData, onDraftStream, onDraftStreamComplete, onAIMessageComplete]
   );
 
   /**
@@ -414,6 +422,14 @@ export function useAIChat({
     setMessages((prev) => prev.filter((msg) => msg.id !== messageId));
   }, []);
 
+  /**
+   * Restore messages from a saved thread (for loading past conversations)
+   */
+  const restoreMessages = useCallback((savedMessages: ChatMessage[]) => {
+    setMessages(savedMessages);
+    setError(null);
+  }, []);
+
   return {
     // State
     messages,
@@ -425,6 +441,7 @@ export function useAIChat({
     sendMessage,
     clearChat,
     removeMessage,
+    restoreMessages,
   };
 }
 

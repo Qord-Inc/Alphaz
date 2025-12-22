@@ -10,6 +10,7 @@ const linkedinRoutes = require('./routes/linkedinRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const organizationAnalyticsRoutes = require('./routes/organizationAnalyticsRoutes');
 const embeddingsRoutes = require('./routes/embeddingsRoutes');
+const threadsRoutes = require('./routes/threadsRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -34,6 +35,7 @@ app.use('/api', linkedinRoutes);
 app.use('/api', analyticsRoutes);
 app.use('/api/analytics', organizationAnalyticsRoutes);
 app.use('/api/embeddings', embeddingsRoutes);
+app.use('/api', threadsRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

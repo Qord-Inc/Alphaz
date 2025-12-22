@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo, useCallback, memo, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { useUser as useClerkUser } from "@clerk/nextjs";
 import { AppLayout } from "@/components/app-layout";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,8 @@ import { useAIChat } from "@/hooks/useAIChat";
 import { useUser } from "@/hooks/useUser";
 import { MarkdownMessage } from "@/components/markdown-message";
 import { DraftPanel, Draft } from "@/components/draft-panel";
+import { ThreadsPanel } from "@/components/threads-panel";
+import { useThreads } from "@/hooks/useThreads";
 import { 
   Paperclip, 
   Mic, 
@@ -232,7 +235,14 @@ const MessageList = memo(({
 
 MessageList.displayName = 'MessageList';
 
-export default function Create() {
+interface CreatePageProps {
+  threadId?: string; // Optional thread ID from URL
+}
+
+export default function Create({ threadId }: CreatePageProps = {}) {
+  // Router for navigation
+  const router = useRouter();
+  
   // Context and hooks
   const { selectedOrganization, isPersonalProfile } = useOrganization();
   const { user } = useUser();
@@ -258,6 +268,35 @@ export default function Create() {
   
   // Map message IDs to draft metadata
   const messageDraftMap = useRef<Map<string, { draftId: string; version: number; intent: string }>>(new Map());
+
+  // Thread management - persist chats and drafts
+  const {
+    threads,
+    currentThread,
+    isLoading: isLoadingThreads,
+    isLoadingThread,
+    selectThread,
+    newThread,
+    renameThread,
+    removeThread,
+    clearCurrentThread,
+    appendMessage,
+    saveCurrentDraft,
+  } = useThreads({
+    userId: clerkUser?.id,
+    organizationId: selectedOrganization?.id,
+    enabled: !!selectedOrganization, // Only load threads when org is selected
+  });
+
+  // Load thread from URL on initial mount
+  useEffect(() => {
+    if (threadId && selectedOrganization && !isLoadingThreads) {
+      // Only load if we don't already have this thread loaded
+      if (currentThread?.id !== threadId) {
+        selectThread(threadId);
+      }
+    }
+  }, [threadId, selectedOrganization, isLoadingThreads, currentThread?.id, selectThread]);
 
   // Helpers for CTA titles
   const genericTitles = useMemo(() => [
@@ -357,7 +396,7 @@ export default function Create() {
    * Handle completion of draft streaming
    * Creates the draft entry after streaming is complete
    */
-  const handleDraftStreamComplete = useCallback((content: string, intent: 'draft' | 'edit', messageId: string) => {
+  const handleDraftStreamComplete = useCallback(async (content: string, intent: 'draft' | 'edit', messageId: string) => {
     console.log('🎯 Draft stream complete:', { intent, messageId, contentLength: content.length });
     
     // If content is empty, it was a follow-up question that got redirected to chat
@@ -396,6 +435,13 @@ export default function Create() {
       // Select the new draft
       setSelectedDraftId(newDraft.id);
       setSelectedDraftVersion(1);
+      
+      // Persist draft to thread (if thread exists)
+      if (currentThread) {
+        saveCurrentDraft(content, { title: 'Draft' }).catch(err => {
+          console.error('Failed to persist draft:', err);
+        });
+      }
       
     } else if (intent === 'edit') {
       // EDIT VERSION: Create a new version of the most recent draft
@@ -441,14 +487,28 @@ export default function Create() {
       setStreamingContent(null);
       setStreamingIntent(null);
     }, 100);
-  }, []);
+  }, [currentThread, saveCurrentDraft]);
+
+  /**
+   * Handle AI message completion - persist to database
+   */
+  const handleAIMessageComplete = useCallback((content: string, intent: string | null, messageId: string) => {
+    const threadId = activeThreadIdRef.current;
+    if (!threadId || !content.trim()) return;
+    
+    // Persist AI response to the thread
+    appendMessage('assistant', content, intent || undefined, threadId).catch(err => 
+      console.error('Failed to persist AI message:', err)
+    );
+  }, [appendMessage]);
   
   // AI chat state
-  const { messages, isLoading, error, currentIntent, sendMessage, clearChat } = useAIChat({
+  const { messages, isLoading, error, currentIntent, sendMessage, clearChat, restoreMessages } = useAIChat({
     organizationId: selectedOrganization?.id || "",
     clerkUserId: clerkUser?.id || "",
     onDraftStream: handleDraftStream,
     onDraftStreamComplete: handleDraftStreamComplete,
+    onAIMessageComplete: handleAIMessageComplete,
   });
 
   // Check if user is on personal profile (not organization)
@@ -520,6 +580,54 @@ export default function Create() {
   }, [drafts, sendMessage]);
 
   /**
+   * Handle selecting a thread from the history panel
+   */
+  const handleSelectThread = useCallback(async (threadId: string) => {
+    // Clear current chat
+    clearChat();
+    setDrafts([]);
+    messageDraftMap.current.clear();
+    setSelectedDraftId(null);
+    setSelectedDraftVersion(null);
+    
+    // Load the thread
+    await selectThread(threadId);
+    setShowThreadsPanel(false);
+    
+    // Navigate to the thread URL
+    router.push(`/create/${threadId}`);
+  }, [clearChat, selectThread, router]);
+
+  /**
+   * Handle creating a new thread (starts fresh chat)
+   */
+  const handleNewThread = useCallback(async () => {
+    clearChat();
+    setDrafts([]);
+    messageDraftMap.current.clear();
+    setSelectedDraftId(null);
+    setSelectedDraftVersion(null);
+    clearCurrentThread();
+    setShowThreadsPanel(false);
+    
+    // Navigate to clean /create URL
+    router.push('/create');
+  }, [clearChat, clearCurrentThread, router]);
+
+  /**
+   * Handle deleting a thread
+   */
+  const handleDeleteThread = useCallback(async (threadId: string) => {
+    await removeThread(threadId);
+    // If we deleted the current thread, clear the chat
+    if (currentThread?.id === threadId) {
+      clearChat();
+      setDrafts([]);
+      messageDraftMap.current.clear();
+    }
+  }, [removeThread, currentThread, clearChat]);
+
+  /**
    * Post the current draft to LinkedIn for the selected organization
    */
   const handlePostToLinkedIn = useCallback(async (content: string) => {
@@ -560,6 +668,14 @@ export default function Create() {
     }
   }, [selectedOrganization, user?.clerk_user_id]);
 
+  // Ref to track the active thread ID for message persistence
+  const activeThreadIdRef = useRef<string | null>(null);
+  
+  // Keep ref in sync with currentThread
+  useEffect(() => {
+    activeThreadIdRef.current = currentThread?.id || null;
+  }, [currentThread]);
+
   /**
    * Handle sending a message (memoized to prevent re-creation)
    */
@@ -567,6 +683,28 @@ export default function Create() {
     if (!inputValue.trim() || isLoading) return;
 
     const messageToSend = inputValue;
+    let threadIdForMessage: string | null = activeThreadIdRef.current;
+    
+    // Create a new thread if this is the first message and we don't have one
+    if (messages.length === 0 && !currentThread && selectedOrganization) {
+      const threadTitle = messageToSend.substring(0, 50) + (messageToSend.length > 50 ? '...' : '');
+      const thread = await newThread(threadTitle);
+      if (thread) {
+        threadIdForMessage = thread.id;
+        activeThreadIdRef.current = thread.id;
+        // Persist user message to the new thread (pass threadId directly)
+        appendMessage('user', messageToSend, undefined, thread.id).catch(err => 
+          console.error('Failed to persist user message:', err)
+        );
+        // Update URL without causing navigation/reload (shallow update)
+        window.history.replaceState(null, '', `/create/${thread.id}`);
+      }
+    } else if (threadIdForMessage) {
+      // Persist user message to existing thread
+      appendMessage('user', messageToSend, undefined, threadIdForMessage).catch(err => 
+        console.error('Failed to persist user message:', err)
+      );
+    }
     
     // Trigger transition animation if this is the first message
     if (messages.length === 0) {
@@ -584,7 +722,7 @@ export default function Create() {
     
     setInputValue(""); // Clear input immediately for better UX
     await sendMessage(messageToSend);
-  }, [inputValue, isLoading, sendMessage, messages.length, isDraftMode, messages]);
+  }, [inputValue, isLoading, sendMessage, messages.length, isDraftMode, messages, currentThread, selectedOrganization, newThread, appendMessage]);
 
   /**
    * Handle keyboard shortcut (Enter to send) - memoized
@@ -648,6 +786,62 @@ export default function Create() {
    * which is called when AI streaming completes. This allows drafts to be
    * streamed directly to the draft panel instead of the chat.
    */
+
+  /**
+   * Restore messages and drafts when a thread is loaded
+   */
+  useEffect(() => {
+    if (!currentThread) return;
+    
+    // Restore messages from the thread
+    if (currentThread.messages && currentThread.messages.length > 0) {
+      // Convert thread messages to ChatMessage format
+      const restoredMessages = currentThread.messages
+        .sort((a, b) => a.seq - b.seq) // Sort by sequence
+        .map(m => ({
+          id: m.id,
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+          timestamp: new Date(m.created_at),
+          intent: m.intent as 'edit' | 'ideate' | 'draft' | 'feedback' | undefined,
+        }));
+      
+      restoreMessages(restoredMessages);
+      console.log('✅ Restored', restoredMessages.length, 'messages from thread');
+    }
+    
+    // Restore drafts from the thread
+    if (currentThread.drafts && currentThread.drafts.length > 0) {
+      const restoredDrafts: Draft[] = currentThread.drafts.map(d => {
+        const versions = (d.versions || []).sort((a, b) => a.version - b.version);
+        const latestVersion = versions[versions.length - 1];
+        
+        return {
+          id: d.id,
+          messageId: d.id, // Use draft id as message id for restored drafts
+          content: latestVersion?.content || '',
+          title: d.title || 'Draft',
+          currentVersion: d.current_version,
+          versions: versions.map(v => ({
+            version: v.version,
+            content: v.content,
+            editPrompt: v.edit_prompt,
+            changes: v.changes || [],
+            timestamp: new Date(v.created_at),
+          })),
+          timestamp: new Date(d.created_at),
+        };
+      });
+      
+      setDrafts(restoredDrafts);
+      
+      // Select the first draft if any
+      if (restoredDrafts.length > 0) {
+        setSelectedDraftId(restoredDrafts[0].id);
+        setSelectedDraftVersion(restoredDrafts[0].currentVersion);
+      }
+    }
+  }, [currentThread, restoreMessages]);
 
   return (
     <AppLayout>
@@ -899,15 +1093,15 @@ export default function Create() {
           )}
         </div>
 
-        {/* Chat Info Panel (Slide-out) */}
+        {/* Threads Panel (Slide-out) */}
         <div 
           className={`absolute left-0 top-0 h-full w-80 bg-card border-r border-border shadow-lg transform transition-transform duration-300 ease-in-out z-10 ${
             showThreadsPanel ? 'translate-x-0' : '-translate-x-full'
           }`}
         >
-          {/* Panel Header */}
-          <div className="flex items-center justify-between p-4 border-b border-border">
-            <h3 className="font-semibold text-foreground">Chat Info</h3>
+          {/* Panel Header with Close */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+            <h3 className="font-semibold text-foreground">Chat History</h3>
             <Button 
               variant="ghost" 
               size="icon"
@@ -918,47 +1112,16 @@ export default function Create() {
             </Button>
           </div>
 
-          {/* Chat Info Content */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            <div>
-              <h4 className="text-sm font-semibold text-gray-800 mb-2">Organization</h4>
-              <p className="text-sm text-gray-600">{selectedOrganization?.name}</p>
-            </div>
-
-            <div>
-              <h4 className="text-sm font-semibold text-gray-800 mb-2">Messages</h4>
-              <p className="text-sm text-gray-600">{messages.length} messages in this chat</p>
-            </div>
-
-            <div>
-              <h4 className="text-sm font-semibold text-gray-800 mb-2">Tips</h4>
-              <ul className="text-xs text-gray-600 space-y-1 list-disc list-inside">
-                <li>Describe what you want to post</li>
-                <li>Ask for refinements or variations</li>
-                <li>Request specific tone or style</li>
-                <li>Get suggestions based on your audience</li>
-              </ul>
-            </div>
-
-            <div>
-              <h4 className="text-sm font-semibold text-gray-800 mb-2">Context Used</h4>
-              <p className="text-xs text-gray-600">
-                AI uses your organization's analytics, past posts, and audience demographics to create relevant content.
-              </p>
-            </div>
-          </div>
-
-          {/* Panel Footer */}
-          <div className="p-4 border-t border-gray-100">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={clearChat}
-              className="w-full text-sm text-red-600 hover:text-red-700"
-            >
-              Clear Chat
-            </Button>
-          </div>
+          {/* Threads List */}
+          <ThreadsPanel
+            threads={threads}
+            currentThreadId={currentThread?.id}
+            isLoading={isLoadingThreads}
+            onSelectThread={handleSelectThread}
+            onNewThread={handleNewThread}
+            onDeleteThread={handleDeleteThread}
+            onRenameThread={renameThread}
+          />
         </div>
 
         {/* Overlay when panel is open */}
