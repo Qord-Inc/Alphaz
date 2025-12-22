@@ -12,6 +12,17 @@ const IntentSchema = z.object({
   ),
 });
 
+// Edit response schema (for structured output)
+const EditResponseSchema = z.object({
+  type: z.enum(['draft', 'question']).describe(
+    'draft: A revised version of the post. ' +
+    'question: A clarifying question before editing.'
+  ),
+  content: z.string().describe('The revised post content or the clarifying question'),
+  changes: z.array(z.string()).optional().describe('List of changes made (only for draft type)'),
+  questionContext: z.string().optional().describe('Why clarification is needed (only for question type)'),
+});
+
 /**
  * Detect user intent using OpenAI function calling
  * Returns one of: edit, ideate, draft, feedback
@@ -258,14 +269,12 @@ You are a content strategist helping a real professional generate strong, human-
 Your job is to generate ideas that this specific person should realistically post.
 
 TASK:
-Edit an existing LinkedIn post.
+Edit/refine an existing LinkedIn post based on user feedback.
 
-INPUTS:
-Original post:
-{{original_post}}
-
-Editing objective:
-{{editing_goal}}
+IMPORTANT:
+- If the editing request is unclear, ask ONE specific clarifying question
+- If the request is clear, provide the revised post with a list of changes made
+- Format your response consistently as specified below
 
 ---
 
@@ -293,9 +302,34 @@ SELF-CHECK BEFORE OUTPUT (internal):
 - Is it clearer for the intended audience?
 - Is it still within the author’s expertise?
 
-OUTPUT FORMAT:
+OUTPUT FORMAT (for edits):
+
+Return EXACTLY in this format:
+
 1. Revised post
-2. Up to 3 bullet points explaining what was improved and why
+[THE COMPLETE REVISED POST HERE]
+
+2. Changes made
+- [First specific change and why]
+- [Second specific change and why]
+- [Third specific change if applicable]
+
+DO NOT:
+- Skip the numbered sections
+- Add extra commentary
+- Explain your process
+- Ask if they like it
+
+The output must be copy-paste ready.
+
+---
+
+OUTPUT FORMAT (for clarifying questions):
+
+Just ask the question naturally. Example:
+"Which part should I focus on - the opening hook, the story flow, or the call-to-action?"
+
+Do not number it or format it specially
 
 
 

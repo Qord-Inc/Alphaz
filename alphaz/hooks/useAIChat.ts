@@ -37,10 +37,16 @@ export function useAIChat({
   organizationId,
   clerkUserId,
   contextData,
+  onDraftStream,
+  onDraftStreamComplete,
 }: {
   organizationId: string;
   clerkUserId: string;
   contextData?: ContextData;
+  /** Called with each streaming chunk when intent is 'draft' or 'edit' */
+  onDraftStream?: (content: string, intent: 'draft' | 'edit') => void;
+  /** Called when draft streaming is complete */
+  onDraftStreamComplete?: (content: string, intent: 'draft' | 'edit', messageId: string) => void;
 }) {
   // State management
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -148,6 +154,10 @@ export function useAIChat({
 
         // Create assistant message object first (empty, will be filled as stream arrives)
         const assistantMessageId = `assistant-${Date.now()}`;
+        
+        // Check if this is a draft/edit intent - will stream to draft panel unless it's a follow-up question
+        const initialIsDraftIntent = detectedIntent === 'draft' || detectedIntent === 'edit';
+        
         const assistantMessage: ChatMessage = {
           id: assistantMessageId,
           role: 'assistant',
@@ -164,12 +174,18 @@ export function useAIChat({
         const decoder = new TextDecoder();
         let fullText = '';
         let chunkCount = 0;
+        
+        // Track if we've detected this is a follow-up question (not a real draft)
+        let isFollowUpQuestion = false;
+        // Track if we're currently streaming to draft panel
+        let streamingToDraft = initialIsDraftIntent;
 
         if (!reader) {
           throw new Error('Response body is not readable');
         }
 
-        console.log(`� [READING STREAM] Starting to receive chunks...`);
+        console.log(`📖 [READING STREAM] Starting to receive chunks...`);
+        console.log(`   Initial draft intent: ${initialIsDraftIntent ? 'YES' : 'NO'}`);
 
         while (true) {
           const { done, value } = await reader.read();
@@ -178,6 +194,13 @@ export function useAIChat({
             console.log(`\n✅ [STREAM COMPLETE]`);
             console.log(`   Total chunks received: ${chunkCount}`);
             console.log(`   Final message length: ${fullText.length} chars`);
+            console.log(`   Is follow-up question: ${isFollowUpQuestion}`);
+            console.log(`   Streaming to draft: ${streamingToDraft}`);
+            
+            // Only call draft completion if it's actually a draft (not a follow-up question)
+            if (streamingToDraft && !isFollowUpQuestion && onDraftStreamComplete) {
+              onDraftStreamComplete(fullText, detectedIntent as 'draft' | 'edit', assistantMessageId);
+            }
             break;
           }
 
@@ -191,14 +214,50 @@ export function useAIChat({
             console.log(`   Received ${chunkCount} chunks (${fullText.length} chars so far)...`);
           }
 
-          // Update the message in real-time
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === assistantMessageId
-                ? { ...msg, content: fullText }
-                : msg
-            )
-          );
+          // Check if this is a follow-up question after we have enough content
+          // Only check once when we have 50-150 chars (enough to detect question pattern)
+          if (initialIsDraftIntent && !isFollowUpQuestion && fullText.length >= 50 && fullText.length < 200) {
+            // Import the detection function
+            const { isFollowUpQuestion: checkIsFollowUp } = require('@/lib/draftVersioning');
+            isFollowUpQuestion = checkIsFollowUp(fullText);
+            
+            if (isFollowUpQuestion) {
+              console.log(`🔄 Detected follow-up question, switching to chat stream`);
+              streamingToDraft = false;
+              
+              // Signal to stop draft streaming
+              if (onDraftStream) {
+                onDraftStream('', detectedIntent as 'draft' | 'edit'); // Clear draft panel
+              }
+            }
+          }
+
+          if (streamingToDraft && !isFollowUpQuestion) {
+            // Stream to draft panel via callback
+            if (onDraftStream) {
+              onDraftStream(fullText, detectedIntent as 'draft' | 'edit');
+            }
+            // Update chat message with a placeholder/CTA message
+            const ctaMessage = detectedIntent === 'edit' 
+              ? "✨ I've updated your draft. You can see the changes in the preview panel."
+              : "✨ I've created a draft for you. You can view and edit it in the preview panel.";
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantMessageId
+                  ? { ...msg, content: ctaMessage }
+                  : msg
+              )
+            );
+          } else {
+            // Normal streaming to chat (either not draft intent OR detected as follow-up question)
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantMessageId
+                  ? { ...msg, content: fullText }
+                  : msg
+              )
+            );
+          }
         }
 
         console.log(`\n✅ [CHAT COMPLETE]`);
@@ -216,7 +275,7 @@ export function useAIChat({
         setIsLoading(false);
       }
     },
-    [messages, organizationId, clerkUserId, contextData]
+    [messages, organizationId, clerkUserId, contextData, onDraftStream, onDraftStreamComplete]
   );
 
   /**

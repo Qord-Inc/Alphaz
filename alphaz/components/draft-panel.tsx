@@ -1,14 +1,25 @@
 'use client';
 
-import { useState, memo, useCallback } from 'react';
+import { useState, memo, useCallback, useEffect } from 'react';
 import { LinkedInPostPreview } from './linkedin-post-preview';
-import { ChevronLeft, ChevronRight, FileText, Trash2, Copy, Download, Check } from 'lucide-react';
+import { ChevronLeft, ChevronRight, FileText, Trash2, Copy, Download, Check, Loader2 } from 'lucide-react';
+
+export interface DraftVersion {
+  version: number;
+  content: string;
+  timestamp: Date;
+  changes?: string[];
+  editPrompt?: string;
+}
 
 export interface Draft {
   id: string;
   content: string;
   timestamp: Date;
   title?: string;
+  versions: DraftVersion[];
+  currentVersion: number;
+  parentMessageId?: string;
 }
 
 interface DraftPanelProps {
@@ -16,9 +27,18 @@ interface DraftPanelProps {
   organizationName: string;
   organizationImage?: string;
   isCollapsed: boolean;
+  selectedDraftId?: string | null;
+  selectedVersion?: number | null;
+  /** Currently streaming draft content (when AI is generating) */
+  streamingContent?: string | null;
+  /** Intent of the streaming content */
+  streamingIntent?: 'draft' | 'edit' | null;
+  /** Whether AI is currently generating draft content */
+  isStreaming?: boolean;
   onToggle: () => void;
   onDeleteDraft: (id: string) => void;
   onCopyDraft: (content: string) => void;
+  onInlineEdit?: (instruction: string, selectedText: string) => void;
 }
 
 export const DraftPanel = memo(({ 
@@ -26,15 +46,46 @@ export const DraftPanel = memo(({
   organizationName, 
   organizationImage,
   isCollapsed,
+  selectedDraftId,
+  selectedVersion: externalSelectedVersion,
+  streamingContent,
+  streamingIntent,
+  isStreaming,
   onToggle,
   onDeleteDraft,
   onCopyDraft,
+  onInlineEdit,
 }: DraftPanelProps) => {
   const [selectedDraftIndex, setSelectedDraftIndex] = useState(drafts.length - 1);
+  const [selectedVersion, setSelectedVersion] = useState<number | null>(null); // null means current version
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  
+  // Auto-select draft when selectedDraftId changes
+  useEffect(() => {
+    if (selectedDraftId) {
+      const index = drafts.findIndex(d => d.id === selectedDraftId);
+      if (index !== -1) {
+        setSelectedDraftIndex(index);
+        // Set the version from external prop, or null for current version
+        setSelectedVersion(externalSelectedVersion ?? null);
+      }
+    }
+  }, [selectedDraftId, externalSelectedVersion, drafts]);
 
   const selectedDraft = drafts[selectedDraftIndex];
   const hasDrafts = drafts.length > 0;
+  
+  // Get the content to display:
+  // 1. If streaming, show streaming content
+  // 2. Otherwise show selected version or current draft content
+  const displayContent = isStreaming && streamingContent
+    ? streamingContent
+    : (selectedDraft && selectedVersion !== null && selectedVersion !== selectedDraft.currentVersion
+      ? selectedDraft.versions.find(v => v.version === selectedVersion)?.content || selectedDraft.content
+      : selectedDraft?.content);
+    
+  // Has multiple versions?
+  const hasVersions = selectedDraft && selectedDraft.versions.length > 1;
 
   const handleCopy = useCallback((draft: Draft) => {
     onCopyDraft(draft.content);
@@ -54,25 +105,26 @@ export const DraftPanel = memo(({
     URL.revokeObjectURL(url);
   }, []);
 
-  if (!hasDrafts) return null;
+  // Show panel if we have drafts OR if streaming content
+  if (!hasDrafts && !isStreaming) return null;
 
   return (
     <div 
       className={`
-        relative transition-all duration-300 ease-in-out border-r border-border bg-muted/30
+        relative transition-all duration-300 ease-in-out border-l border-border bg-muted/30
         ${isCollapsed ? 'w-12' : 'w-[600px]'}
       `}
     >
       {/* Collapse/Expand Button */}
       <button
         onClick={onToggle}
-        className="absolute -right-3 top-6 z-20 w-6 h-6 bg-card border border-border rounded-full shadow-sm hover:shadow-md transition-all flex items-center justify-center text-muted-foreground hover:text-foreground"
+        className="absolute -left-3 top-6 z-20 w-6 h-6 bg-card border border-border rounded-full shadow-sm hover:shadow-md transition-all flex items-center justify-center text-muted-foreground hover:text-foreground"
         title={isCollapsed ? 'Expand drafts' : 'Collapse drafts'}
       >
         {isCollapsed ? (
-          <ChevronRight className="h-3 w-3" />
-        ) : (
           <ChevronLeft className="h-3 w-3" />
+        ) : (
+          <ChevronRight className="h-3 w-3" />
         )}
       </button>
 
@@ -105,12 +157,31 @@ export const DraftPanel = memo(({
           {/* Header */}
           <div className="px-6 py-4 border-b border-border bg-card">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                <h3 className="font-semibold text-foreground">Draft Posts</h3>
-                <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full font-medium">
-                  {drafts.length}
-                </span>
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  {isStreaming ? (
+                    <Loader2 className="h-5 w-5 text-blue-600 dark:text-blue-400 animate-spin" />
+                  ) : (
+                    <FileText className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                  )}
+                  <h3 className="font-semibold text-foreground">
+                    {isStreaming 
+                      ? (streamingIntent === 'edit' ? 'Updating Draft...' : 'Creating Draft...') 
+                      : 'Post Preview'
+                    }
+                  </h3>
+                  {!isStreaming && (
+                    <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full font-medium">
+                      {drafts.length}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground ml-7">
+                  {isStreaming
+                    ? 'AI is generating your content in real-time...'
+                    : 'See how your post will appear on LinkedIn'
+                  }
+                </p>
               </div>
             </div>
 
@@ -146,16 +217,81 @@ export const DraftPanel = memo(({
 
           {/* Draft Preview */}
           <div className="flex-1 overflow-y-auto p-6">
-            {selectedDraft && (
+            {/* Streaming Content View (when AI is generating) */}
+            {isStreaming && streamingContent && (
               <div className="space-y-4">
                 <LinkedInPostPreview
                   organizationName={organizationName}
                   organizationImage={organizationImage}
-                  postContent={selectedDraft.content}
+                  postContent={streamingContent}
+                  timestamp="Just now"
+                  enableInlineEdit={false}
+                  isStreaming={true}
+                />
+              </div>
+            )}
+            
+            {/* Normal Draft View (when not streaming) */}
+            {!isStreaming && selectedDraft && (
+              <div className="space-y-4">
+                {/* Version Selector - Only show if draft has multiple versions */}
+                {hasVersions && (
+                  <div className="bg-card border border-border rounded-lg p-3">
+                    <div className="text-xs font-medium text-muted-foreground mb-2">
+                      Version History ({selectedDraft.versions.length} versions)
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedDraft.versions.map((version) => {
+                        const isSelected = selectedVersion === version.version || 
+                                         (selectedVersion === null && version.version === selectedDraft.currentVersion);
+                        return (
+                          <button
+                            key={version.version}
+                            onClick={() => setSelectedVersion(version.version)}
+                            className={`
+                              px-3 py-1.5 rounded-md text-xs font-medium transition-all
+                              ${isSelected
+                                ? 'bg-primary text-primary-foreground'
+                                : 'bg-muted text-muted-foreground hover:bg-muted-foreground/10'
+                              }
+                            `}
+                            title={version.editPrompt || `Version ${version.version}`}
+                          >
+                            v{version.version}
+                            {version.version === selectedDraft.currentVersion && (
+                              <span className="ml-1 text-xs opacity-75">(current)</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {/* Show changes for selected version */}
+                    {selectedVersion && selectedDraft.versions.find(v => v.version === selectedVersion)?.changes && (
+                      <div className="mt-3 pt-3 border-t border-border">
+                        <div className="text-xs font-medium text-muted-foreground mb-1">Changes made:</div>
+                        <ul className="text-xs text-foreground space-y-1">
+                          {selectedDraft.versions.find(v => v.version === selectedVersion)!.changes!.map((change, i) => (
+                            <li key={i} className="flex items-start gap-1">
+                              <span className="text-primary mt-0.5">•</span>
+                              <span>{change}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                <LinkedInPostPreview
+                  organizationName={organizationName}
+                  organizationImage={organizationImage}
+                  postContent={displayContent || selectedDraft.content}
                   timestamp={new Date(selectedDraft.timestamp).toLocaleTimeString([], {
                     hour: '2-digit',
                     minute: '2-digit',
                   })}
+                  enableInlineEdit={true}
+                  onInlineEdit={onInlineEdit}
                 />
 
                 {/* Draft Actions */}
