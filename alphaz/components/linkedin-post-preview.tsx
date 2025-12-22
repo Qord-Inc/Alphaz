@@ -11,6 +11,8 @@ interface LinkedInPostPreviewProps {
   timestamp?: string;
   enableInlineEdit?: boolean;
   onInlineEdit?: (instruction: string, selectedText: string) => void;
+  /** Whether content is currently streaming from AI */
+  isStreaming?: boolean;
 }
 
 export const LinkedInPostPreview = memo(({ 
@@ -19,7 +21,8 @@ export const LinkedInPostPreview = memo(({
   postContent,
   timestamp = 'Just now',
   enableInlineEdit = false,
-  onInlineEdit
+  onInlineEdit,
+  isStreaming = false,
 }: LinkedInPostPreviewProps) => {
   const [selectedText, setSelectedText] = useState('');
   const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
@@ -110,9 +113,16 @@ export const LinkedInPostPreview = memo(({
           }`}
           onMouseUp={handleTextSelection}
         >
-          {postContent || (
+          {postContent ? (
+            <>
+              {postContent}
+              {isStreaming && (
+                <span className="inline-block w-2 h-4 bg-blue-500 dark:bg-blue-400 ml-0.5 animate-pulse rounded-sm" />
+              )}
+            </>
+          ) : (
             <span className="text-muted-foreground italic">
-              Your post content will appear here...
+              {isStreaming ? 'Generating your post...' : 'Your post content will appear here...'}
             </span>
           )}
         </div>

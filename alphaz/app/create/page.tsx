@@ -164,20 +164,140 @@ export default function Create() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   
+  // Streaming state for draft panel
+  const [streamingContent, setStreamingContent] = useState<string | null>(null);
+  const [streamingIntent, setStreamingIntent] = useState<'draft' | 'edit' | null>(null);
+  const [isStreamingDraft, setIsStreamingDraft] = useState(false);
+  
   // Map message IDs to draft metadata
   const messageDraftMap = useRef<Map<string, { draftId: string; version: number; intent: string }>>(new Map());
+  
+  /**
+   * Handle streaming content from AI (draft/edit intents)
+   * This streams directly to the draft panel instead of chat
+   */
+  const handleDraftStream = useCallback((content: string, intent: 'draft' | 'edit') => {
+    // If content is empty, this means we detected a follow-up question
+    // and should stop streaming to draft panel
+    if (!content || content.trim().length === 0) {
+      console.log('🔄 Follow-up question detected, clearing draft stream');
+      setIsStreamingDraft(false);
+      setStreamingContent(null);
+      setStreamingIntent(null);
+      return;
+    }
+    
+    setStreamingContent(content);
+    setStreamingIntent(intent);
+    setIsStreamingDraft(true);
+    // Expand draft panel when streaming starts
+    setIsDraftPanelCollapsed(false);
+  }, []);
+  
+  /**
+   * Handle completion of draft streaming
+   * Creates the draft entry after streaming is complete
+   */
+  const handleDraftStreamComplete = useCallback((content: string, intent: 'draft' | 'edit', messageId: string) => {
+    console.log('🎯 Draft stream complete:', { intent, messageId, contentLength: content.length });
+    
+    // If content is empty, it was a follow-up question that got redirected to chat
+    if (!content || content.trim().length === 0) {
+      console.log('⚠️ Empty content, clearing streaming state');
+      setIsStreamingDraft(false);
+      setStreamingContent(null);
+      setStreamingIntent(null);
+      return;
+    }
+    
+    // Import versioning utilities
+    const { 
+      createDraft, 
+      createDraftVersion, 
+      extractDraftFromEditResponse,
+    } = require('@/lib/draftVersioning');
+    
+    if (intent === 'draft') {
+      // NEW DRAFT: Create a new draft with v1
+      const newDraft = createDraft(messageId, content, new Date());
+      
+      console.log('✅ Created new draft from stream:', newDraft.id);
+      
+      // Store message-draft mapping
+      messageDraftMap.current.set(messageId, {
+        draftId: newDraft.id,
+        version: 1,
+        intent: 'draft'
+      });
+      
+      // Add draft first, then clear streaming state
+      // This ensures the draft content is visible immediately
+      setDrafts(prev => [...prev, newDraft]);
+      
+      // Select the new draft
+      setSelectedDraftId(newDraft.id);
+      setSelectedDraftVersion(1);
+      
+    } else if (intent === 'edit') {
+      // EDIT VERSION: Create a new version of the most recent draft
+      const { content: extractedContent, changes } = extractDraftFromEditResponse(content);
+      
+      setDrafts(prev => {
+        if (prev.length === 0) return prev;
+        
+        // Get the most recent draft (last in array)
+        const targetDraft = prev[prev.length - 1];
+        
+        // Create new version
+        const updatedDraft = createDraftVersion(
+          targetDraft,
+          extractedContent,
+          'Edit request',
+          changes,
+          new Date()
+        );
+        
+        console.log(`📝 Created draft version ${updatedDraft.currentVersion} from stream`);
+        
+        // Store message-draft mapping
+        messageDraftMap.current.set(messageId, {
+          draftId: updatedDraft.id,
+          version: updatedDraft.currentVersion,
+          intent: 'edit'
+        });
+        
+        // Select the updated version
+        setSelectedDraftId(updatedDraft.id);
+        setSelectedDraftVersion(updatedDraft.currentVersion);
+        
+        // Replace the draft with updated version
+        return [...prev.slice(0, -1), updatedDraft];
+      });
+    }
+    
+    // Clear streaming state AFTER drafts are updated
+    // Use setTimeout to ensure React has processed the draft state update
+    setTimeout(() => {
+      setIsStreamingDraft(false);
+      setStreamingContent(null);
+      setStreamingIntent(null);
+    }, 100);
+  }, []);
   
   // AI chat state
   const { messages, isLoading, error, currentIntent, sendMessage, clearChat } = useAIChat({
     organizationId: selectedOrganization?.id || "",
     clerkUserId: clerkUser?.id || "",
+    onDraftStream: handleDraftStream,
+    onDraftStreamComplete: handleDraftStreamComplete,
   });
 
   // Check if user is on personal profile (not organization)
   const isBlocked = isPersonalProfile;
   const isChatActive = messages.length > 0;
   const isDraftMode = currentIntent === 'draft' && isChatActive;
-  const hasDrafts = drafts.length > 0;
+  // Show draft panel if we have drafts OR if AI is streaming draft content
+  const hasDrafts = drafts.length > 0 || isStreamingDraft;
   
   // Debug logging
   console.log('📊 Create Page State:', {
@@ -186,7 +306,8 @@ export default function Create() {
     hasDrafts,
     currentIntent,
     isLoading,
-    isDraftPanelCollapsed
+    isDraftPanelCollapsed,
+    isStreamingDraft,
   });
   
   /**
@@ -321,117 +442,10 @@ export default function Create() {
   }, [messages.length, scrollToBottom]);
 
   /**
-   * Auto-save draft when AI generates content
-   * Handles both:
-   * 1. New drafts (draft intent) - creates new draft
-   * 2. Edit versions (edit intent on existing draft) - creates v2, v3, etc.
+   * NOTE: Draft creation is now handled by handleDraftStreamComplete callback
+   * which is called when AI streaming completes. This allows drafts to be
+   * streamed directly to the draft panel instead of the chat.
    */
-  useEffect(() => {
-    console.log('🎯 Auto-save effect triggered:', { 
-      isLoading, 
-      messagesCount: messages.length, 
-      currentIntent,
-      shouldProcess: !isLoading && messages.length > 0 && (currentIntent === 'draft' || currentIntent === 'edit')
-    });
-    
-    if (!isLoading && messages.length > 0 && (currentIntent === 'draft' || currentIntent === 'edit')) {
-      const lastAssistantMessage = messages.filter(m => m.role === 'assistant').pop();
-      const lastUserMessage = messages.filter(m => m.role === 'user').pop();
-      
-      console.log('💬 Last messages:', { 
-        assistant: lastAssistantMessage?.id, 
-        assistantContentLength: lastAssistantMessage?.content?.length,
-        user: lastUserMessage?.id 
-      });
-      
-      if (!lastAssistantMessage?.content) {
-        console.log('⚠️ No assistant message content, returning');
-        return;
-      }
-
-      // Import versioning utilities
-      const { 
-        createDraft, 
-        createDraftVersion, 
-        extractDraftFromEditResponse,
-        isFollowUpQuestion 
-      } = require('@/lib/draftVersioning');
-
-      // If it's a follow-up question, don't save as draft
-      if (isFollowUpQuestion(lastAssistantMessage.content)) {
-        console.log('🤔 AI asked a follow-up question, not saving as draft');
-        return;
-      }
-
-      if (currentIntent === 'draft') {
-        // NEW DRAFT: Create a new draft with v1
-        const draftId = `draft-${lastAssistantMessage.id}`;
-        console.log('🔍 Attempting to create draft:', { draftId, messageId: lastAssistantMessage.id });
-        
-        setDrafts(prev => {
-          const exists = prev.some(d => d.id === draftId);
-          if (exists) {
-            console.log('⚠️ Draft already exists:', draftId);
-            return prev;
-          }
-          
-          const newDraft = createDraft(
-            lastAssistantMessage.id,
-            lastAssistantMessage.content,
-            new Date()
-          );
-          
-          console.log('✅ Created new draft:', newDraft.id, 'Total drafts:', prev.length + 1);
-          
-          // Store message-draft mapping
-          messageDraftMap.current.set(lastAssistantMessage.id, {
-            draftId: newDraft.id,
-            version: 1,
-            intent: 'draft'
-          });
-          
-          const updatedDrafts = [...prev, newDraft];
-          console.log('📋 Updated drafts array:', updatedDrafts.map(d => d.id));
-          return updatedDrafts;
-        });
-        console.log('🔓 Setting draft panel collapsed to false');
-        setIsDraftPanelCollapsed(false);
-        
-      } else if (currentIntent === 'edit' && drafts.length > 0) {
-        // EDIT VERSION: Create a new version of the most recent draft
-        const { content, changes } = extractDraftFromEditResponse(lastAssistantMessage.content);
-        
-        setDrafts(prev => {
-          if (prev.length === 0) return prev;
-          
-          // Get the most recent draft (last in array)
-          const targetDraft = prev[prev.length - 1];
-          
-          // Create new version
-          const updatedDraft = createDraftVersion(
-            targetDraft,
-            content,
-            lastUserMessage?.content || 'Edit request',
-            changes,
-            new Date()
-          );
-          
-          console.log(`📝 Created draft version ${updatedDraft.currentVersion} for ${updatedDraft.id}`);
-          
-          // Store message-draft mapping
-          messageDraftMap.current.set(lastAssistantMessage.id, {
-            draftId: updatedDraft.id,
-            version: updatedDraft.currentVersion,
-            intent: 'edit'
-          });
-          
-          // Replace the draft with updated version
-          return [...prev.slice(0, -1), updatedDraft];
-        });
-        setIsDraftPanelCollapsed(false);
-      }
-    }
-  }, [isLoading, messages, currentIntent, drafts.length]);
 
   return (
     <AppLayout>
@@ -565,8 +579,8 @@ export default function Create() {
                   >
                     <MessageList messages={enrichedMessages} onViewDraft={handleViewDraft} />
 
-                  {/* Loading indicator */}
-                  {isLoading && (
+                  {/* Loading indicator - only show when NOT streaming to draft panel */}
+                  {isLoading && !isStreamingDraft && (
                     <div className="w-full flex justify-center">
                       <div className="max-w-4xl w-full px-6">
                         <div className="flex justify-start">
@@ -607,6 +621,9 @@ export default function Create() {
                       isCollapsed={isDraftPanelCollapsed}
                       selectedDraftId={selectedDraftId}
                       selectedVersion={selectedDraftVersion}
+                      streamingContent={streamingContent}
+                      streamingIntent={streamingIntent}
+                      isStreaming={isStreamingDraft}
                       onToggle={() => setIsDraftPanelCollapsed(!isDraftPanelCollapsed)}
                       onDeleteDraft={(id) => setDrafts(prev => prev.filter(d => d.id !== id))}
                       onCopyDraft={(content) => navigator.clipboard.writeText(content)}

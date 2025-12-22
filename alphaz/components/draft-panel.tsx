@@ -2,7 +2,7 @@
 
 import { useState, memo, useCallback, useEffect } from 'react';
 import { LinkedInPostPreview } from './linkedin-post-preview';
-import { ChevronLeft, ChevronRight, FileText, Trash2, Copy, Download, Check } from 'lucide-react';
+import { ChevronLeft, ChevronRight, FileText, Trash2, Copy, Download, Check, Loader2 } from 'lucide-react';
 
 export interface DraftVersion {
   version: number;
@@ -29,6 +29,12 @@ interface DraftPanelProps {
   isCollapsed: boolean;
   selectedDraftId?: string | null;
   selectedVersion?: number | null;
+  /** Currently streaming draft content (when AI is generating) */
+  streamingContent?: string | null;
+  /** Intent of the streaming content */
+  streamingIntent?: 'draft' | 'edit' | null;
+  /** Whether AI is currently generating draft content */
+  isStreaming?: boolean;
   onToggle: () => void;
   onDeleteDraft: (id: string) => void;
   onCopyDraft: (content: string) => void;
@@ -42,6 +48,9 @@ export const DraftPanel = memo(({
   isCollapsed,
   selectedDraftId,
   selectedVersion: externalSelectedVersion,
+  streamingContent,
+  streamingIntent,
+  isStreaming,
   onToggle,
   onDeleteDraft,
   onCopyDraft,
@@ -66,10 +75,14 @@ export const DraftPanel = memo(({
   const selectedDraft = drafts[selectedDraftIndex];
   const hasDrafts = drafts.length > 0;
   
-  // Get the content to display (current version or selected historical version)
-  const displayContent = selectedDraft && selectedVersion !== null && selectedVersion !== selectedDraft.currentVersion
-    ? selectedDraft.versions.find(v => v.version === selectedVersion)?.content || selectedDraft.content
-    : selectedDraft?.content;
+  // Get the content to display:
+  // 1. If streaming, show streaming content
+  // 2. Otherwise show selected version or current draft content
+  const displayContent = isStreaming && streamingContent
+    ? streamingContent
+    : (selectedDraft && selectedVersion !== null && selectedVersion !== selectedDraft.currentVersion
+      ? selectedDraft.versions.find(v => v.version === selectedVersion)?.content || selectedDraft.content
+      : selectedDraft?.content);
     
   // Has multiple versions?
   const hasVersions = selectedDraft && selectedDraft.versions.length > 1;
@@ -92,7 +105,8 @@ export const DraftPanel = memo(({
     URL.revokeObjectURL(url);
   }, []);
 
-  if (!hasDrafts) return null;
+  // Show panel if we have drafts OR if streaming content
+  if (!hasDrafts && !isStreaming) return null;
 
   return (
     <div 
@@ -143,12 +157,31 @@ export const DraftPanel = memo(({
           {/* Header */}
           <div className="px-6 py-4 border-b border-border bg-card">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                <h3 className="font-semibold text-foreground">Draft Posts</h3>
-                <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full font-medium">
-                  {drafts.length}
-                </span>
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  {isStreaming ? (
+                    <Loader2 className="h-5 w-5 text-blue-600 dark:text-blue-400 animate-spin" />
+                  ) : (
+                    <FileText className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                  )}
+                  <h3 className="font-semibold text-foreground">
+                    {isStreaming 
+                      ? (streamingIntent === 'edit' ? 'Updating Draft...' : 'Creating Draft...') 
+                      : 'Post Preview'
+                    }
+                  </h3>
+                  {!isStreaming && (
+                    <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full font-medium">
+                      {drafts.length}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground ml-7">
+                  {isStreaming
+                    ? 'AI is generating your content in real-time...'
+                    : 'See how your post will appear on LinkedIn'
+                  }
+                </p>
               </div>
             </div>
 
@@ -184,7 +217,22 @@ export const DraftPanel = memo(({
 
           {/* Draft Preview */}
           <div className="flex-1 overflow-y-auto p-6">
-            {selectedDraft && (
+            {/* Streaming Content View (when AI is generating) */}
+            {isStreaming && streamingContent && (
+              <div className="space-y-4">
+                <LinkedInPostPreview
+                  organizationName={organizationName}
+                  organizationImage={organizationImage}
+                  postContent={streamingContent}
+                  timestamp="Just now"
+                  enableInlineEdit={false}
+                  isStreaming={true}
+                />
+              </div>
+            )}
+            
+            {/* Normal Draft View (when not streaming) */}
+            {!isStreaming && selectedDraft && (
               <div className="space-y-4">
                 {/* Version Selector - Only show if draft has multiple versions */}
                 {hasVersions && (
