@@ -123,20 +123,25 @@ async function handleLinkedInCallback(req, res) {
       });
 
       const profile = profileResponse.data;
+      console.log('LinkedIn profile response:', JSON.stringify(profile, null, 2));
       
       // Extract profile data
       profileData.id = profile.id;
       profileData.name = `${profile.localizedFirstName || ''} ${profile.localizedLastName || ''}`.trim() || 'LinkedIn User';
       
       // Extract profile picture URL if available
-      if (profile.profilePicture?.['displayImage~']?.elements?.[0]) {
-        const imageElements = profile.profilePicture['displayImage~'].elements;
-        // Get the highest quality image
-        const bestImage = imageElements[imageElements.length - 1];
-        profileData.pictureUrl = bestImage.identifiers?.[0]?.identifier;
+      // The projection returns displayImage~ with elements containing identifiers
+      const displayImage = profile.profilePicture?.['displayImage~'];
+      if (displayImage?.elements?.length > 0) {
+        // Get the highest quality image (last element is typically highest res)
+        const bestImage = displayImage.elements[displayImage.elements.length - 1];
+        profileData.pictureUrl = bestImage?.identifiers?.[0]?.identifier || null;
+        console.log('Extracted profile picture URL:', profileData.pictureUrl);
+      } else {
+        console.log('No profile picture elements found in response');
       }
     } catch (profileError) {
-      console.log('Could not fetch basic profile:', profileError.message);
+      console.log('Could not fetch basic profile:', profileError.message, profileError.response?.data);
       // Continue without profile data
     }
 
@@ -367,9 +372,10 @@ async function fetchUserCompanyPages(clerkUserId, accessToken) {
         
         try {
           // Use the appropriate endpoint based on organization type
+          // Include projection to expand logo image URLs
           const endpoint = orgType === 'organizationBrand' 
-            ? `https://api.linkedin.com/v2/organizationBrands/${orgId}`
-            : `https://api.linkedin.com/v2/organizations/${orgId}`;
+            ? `https://api.linkedin.com/v2/organizationBrands/${orgId}?projection=(id,localizedName,vanityName,logoV2(cropped~:playableStreams,original~:playableStreams))`
+            : `https://api.linkedin.com/v2/organizations/${orgId}?projection=(id,localizedName,vanityName,logoV2(cropped~:playableStreams,original~:playableStreams))`;
             
           const orgResponse = await axios.get(endpoint, {
             headers: {
@@ -379,14 +385,14 @@ async function fetchUserCompanyPages(clerkUserId, accessToken) {
             }
           });
           company = orgResponse.data;
-          console.log(`Successfully fetched details for ${orgType} ${orgId}`);
+          console.log(`Successfully fetched details for ${orgType} ${orgId}`, JSON.stringify(company.logoV2, null, 2));
         } catch (detailError) {
           console.log(`Could not fetch details for ${orgType} ${orgId}: ${detailError.message}`);
           // Try the organization endpoint as fallback if brand endpoint fails
           if (orgType === 'organizationBrand') {
             try {
               const orgResponse = await axios.get(
-                `https://api.linkedin.com/v2/organizations/${orgId}`,
+                `https://api.linkedin.com/v2/organizations/${orgId}?projection=(id,localizedName,vanityName,logoV2(cropped~:playableStreams,original~:playableStreams))`,
                 {
                   headers: {
                     'Authorization': `Bearer ${accessToken}`,
@@ -396,7 +402,7 @@ async function fetchUserCompanyPages(clerkUserId, accessToken) {
                 }
               );
               company = orgResponse.data;
-              console.log(`Fallback successful: fetched as organization instead of brand`);
+              console.log(`Fallback successful: fetched as organization instead of brand`, JSON.stringify(company.logoV2, null, 2));
             } catch (fallbackError) {
               console.log(`Fallback also failed: ${fallbackError.message}`);
             }
@@ -413,12 +419,27 @@ async function fetchUserCompanyPages(clerkUserId, accessToken) {
         // Note: CONTENT_ADMINISTRATOR role has limited API access compared to ADMINISTRATOR
         // - ADMINISTRATOR: Full access with rw_organization_admin scope
         // - CONTENT_ADMINISTRATOR: Content posting only with w_organization_social scope
+        
+        // Extract the actual logo URL from the expanded logoV2 response
+        // The projection returns playableStreams with identifiers containing actual URLs
+        let logoUrl = null;
+        const logoData = company.logoV2?.['cropped~'] || company.logoV2?.['original~'];
+        if (logoData?.elements?.length > 0) {
+          // Get the largest/best quality image
+          const bestElement = logoData.elements[logoData.elements.length - 1];
+          logoUrl = bestElement?.identifiers?.[0]?.identifier || null;
+        }
+        // Fallback: if logoV2 has direct URN strings (not expanded), store them anyway
+        if (!logoUrl && company.logoV2) {
+          logoUrl = company.logoV2.cropped || company.logoV2.original || null;
+        }
+        
         const upsertData = {
           user_clerk_id: clerkUserId,
           company_id: orgId,
           company_name: company.localizedName || company.name || `Organization ${orgId}`,
           company_vanity_name: company.vanityName,
-          company_logo_url: company.logoV2?.cropped || company.logoV2?.original || null,
+          company_logo_url: logoUrl,
           is_active: true,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
@@ -474,6 +495,15 @@ async function getCompanyPages(req, res) {
       });
     }
 
+    // Fetch user's LinkedIn access token to resolve media URNs when needed
+    const { data: userRow } = await supabase
+      .from('users')
+      .select('linkedin_access_token')
+      .eq('clerk_user_id', clerkUserId)
+      .single();
+
+    const accessToken = userRow?.linkedin_access_token || null;
+
     const { data: companyPages, error } = await supabase
       .from('linkedin_company_pages')
       .select('*')
@@ -490,13 +520,46 @@ async function getCompanyPages(req, res) {
 
     console.log(`Found ${companyPages?.length || 0} company pages in database`);
 
-    // Transform company pages to match frontend expectations
-    const transformedPages = (companyPages || []).map(page => ({
-      id: page.company_id,
-      name: page.company_name,
-      vanityName: page.company_vanity_name,
-      logoUrl: page.company_logo_url
-    }));
+    // Helper: resolve LinkedIn asset URN to a usable CDN URL using the images API
+    const resolveAsset = async (logoUrl) => {
+      if (!logoUrl || !accessToken) return logoUrl;
+      // If it's already a valid URL, return as-is
+      if (logoUrl.startsWith('http://') || logoUrl.startsWith('https://')) return logoUrl;
+      // If it's not a URN format, return as-is
+      if (!logoUrl.startsWith('urn:li:')) return logoUrl;
+      
+      try {
+        // Use the images API to resolve the URN
+        const encodedUrn = encodeURIComponent(logoUrl);
+        const imagesResp = await axios.get(`https://api.linkedin.com/v2/images/${encodedUrn}`, {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'X-Restli-Protocol-Version': '2.0.0',
+            'LinkedIn-Version': '202511'
+          }
+        });
+
+        // The images API returns downloadUrl directly
+        if (imagesResp.data?.downloadUrl) {
+          return imagesResp.data.downloadUrl;
+        }
+      } catch (err) {
+        console.warn('Could not resolve LinkedIn asset URN via images API', { logoUrl, error: err.message });
+      }
+      
+      // Return null instead of the URN so frontend can show fallback
+      return null;
+    };
+
+    // Transform company pages to match frontend expectations and resolve logos
+    const transformedPages = await Promise.all(
+      (companyPages || []).map(async (page) => ({
+        id: page.company_id,
+        name: page.company_name,
+        vanityName: page.company_vanity_name,
+        logoUrl: await resolveAsset(page.company_logo_url)
+      }))
+    );
 
     console.log('Returning transformed pages:', transformedPages);
 

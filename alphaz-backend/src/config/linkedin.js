@@ -16,7 +16,7 @@ const linkedInConfig = {
   ].join(' '),
   authorizationUrl: 'https://www.linkedin.com/oauth/v2/authorization',
   tokenUrl: 'https://www.linkedin.com/oauth/v2/accessToken',
-  userInfoUrl: 'https://api.linkedin.com/v2/me?projection=(id,localizedFirstName,localizedLastName,profilePicture(displayImage~digitalmediaAsset))',
+  userInfoUrl: 'https://api.linkedin.com/v2/me?projection=(id,localizedFirstName,localizedLastName,profilePicture(displayImage~:playableStreams))',
   organizationAclsUrl: 'https://api.linkedin.com/rest/organizationAcls'
 };
 
