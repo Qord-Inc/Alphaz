@@ -13,6 +13,7 @@ import { MarkdownMessage } from "@/components/markdown-message";
 import { DraftPanel, Draft } from "@/components/draft-panel";
 import { ThreadsPanel } from "@/components/threads-panel";
 import { useThreads } from "@/hooks/useThreads";
+import { saveDraft as saveDraftToApi } from "@/lib/threadsApi";
 import { 
   Paperclip, 
   Mic, 
@@ -65,20 +66,6 @@ const ChatMessage = memo(({
     }
   }, [message.draftId, message.draftVersion, onViewDraft]);
 
-  const showDraftCTA = message.role === "assistant" && 
-                          (message.intent === 'draft' || message.intent === 'edit') && 
-                          message.draftId;
-  
-  if (message.role === "assistant") {
-    console.log('🎯 Message:', message.id, {
-      intent: message.intent,
-      draftId: message.draftId,
-      version: message.draftVersion,
-      showCTA: showDraftCTA,
-      draftTitle: message.draftTitle
-    });
-  }
-
   // Render streaming progress card (greyed-out style with smooth text transitions)
   if (message.isStreamingProgress) {
     return (
@@ -103,16 +90,13 @@ const ChatMessage = memo(({
     );
   }
   
-  // Transition state: draft/edit intent with empty content, waiting for draft info
-  // Don't render anything during this brief transition to avoid flash of empty message
+  // Check if this is a draft/edit intent message (content should show in draft panel, not chat)
   const isDraftIntent = message.intent === 'draft' || message.intent === 'edit';
-  if (isDraftIntent && !message.draftId && message.content === '') {
-    return null;
-  }
-
-  // Render CTA card for draft/edit intents
-  if (showDraftCTA) {
-    const title = message.draftTitle || 'Draft';
+  
+  // For draft/edit intents, ALWAYS render CTA card (never show full content in chat)
+  // The actual content is displayed in the draft panel
+  if (isDraftIntent) {
+    const title = message.draftTitle || (message.intent === 'edit' ? 'Updated Draft' : 'Created Draft');
     const versionLabel = message.draftVersion ? `Version ${message.draftVersion}` : 'Version 1';
     
     // Check if this CTA is the active/selected one
@@ -125,14 +109,17 @@ const ChatMessage = memo(({
           <div className="flex justify-start">
             <button
               onClick={handleViewDraft}
-              className="relative w-full text-left bg-white dark:bg-card border border-slate-200 dark:border-border rounded-2xl px-4 py-3 shadow-sm hover:shadow-md transition focus:outline-none focus:ring-2 focus:ring-primary/40"
+              disabled={!message.draftId}
+              className={`relative w-full text-left bg-white dark:bg-card border border-slate-200 dark:border-border rounded-2xl px-4 py-3 shadow-sm transition focus:outline-none focus:ring-2 focus:ring-primary/40 ${
+                message.draftId ? 'hover:shadow-md cursor-pointer' : 'opacity-70 cursor-default'
+              }`}
             >
               <div className="flex items-start gap-2">
                 <div className="flex-1">
-                  <div className={`text-sm font-medium ${isActive ? 'text-emerald-600' : 'text-slate-600'}`}>
+                  <div className={`text-sm font-medium ${isActive ? 'text-emerald-600' : 'text-slate-600 dark:text-slate-300'}`}>
                     {title}
                   </div>
-                  <div className="mt-1 text-xs text-slate-500">
+                  <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                     {versionLabel}
                   </div>
                 </div>
@@ -147,6 +134,7 @@ const ChatMessage = memo(({
     );
   }
 
+  // Regular message (not draft/edit) - show full content in chat
   return (
     <div className="w-full flex justify-center">
       <div className="max-w-4xl w-full px-6">
@@ -170,7 +158,7 @@ const ChatMessage = memo(({
               )}
             </div>
             
-            {/* Message actions */}
+            {/* Message actions for regular assistant messages */}
             {message.role === "assistant" && (
               <div className="flex gap-2 mt-3 pt-2 border-t border-border">
                 <button
@@ -181,18 +169,6 @@ const ChatMessage = memo(({
                   <Copy className="h-3 w-3" />
                   Copy
                 </button>
-                
-                {/* View Draft CTA */}
-                {showDraftCTA && (
-                  <button
-                    onClick={handleViewDraft}
-                    className="text-xs bg-primary text-primary-foreground hover:bg-primary/90 flex items-center gap-1 px-2 py-1 rounded transition-colors"
-                    title="View this draft in the sidebar"
-                  >
-                    <FileText className="h-3 w-3" />
-                    View {message.intent === 'edit' && message.draftVersion ? `v${message.draftVersion}` : 'Draft'}
-                  </button>
-                )}
               </div>
             )}
           </div>
@@ -268,6 +244,9 @@ export default function Create({ threadId }: CreatePageProps = {}) {
   
   // Map message IDs to draft metadata
   const messageDraftMap = useRef<Map<string, { draftId: string; version: number; intent: string }>>(new Map());
+  
+  // Track if we've already restored the current thread (prevent re-restore during active session)
+  const lastRestoredThreadId = useRef<string | null>(null);
 
   // Thread management - persist chats and drafts
   const {
@@ -395,6 +374,7 @@ export default function Create({ threadId }: CreatePageProps = {}) {
   /**
    * Handle completion of draft streaming
    * Creates the draft entry after streaming is complete
+   * Also persists to database using activeThreadIdRef
    */
   const handleDraftStreamComplete = useCallback(async (content: string, intent: 'draft' | 'edit', messageId: string) => {
     console.log('🎯 Draft stream complete:', { intent, messageId, contentLength: content.length });
@@ -414,6 +394,9 @@ export default function Create({ threadId }: CreatePageProps = {}) {
       createDraftVersion, 
       extractDraftFromEditResponse,
     } = require('@/lib/draftVersioning');
+    
+    // Get threadId from ref (more reliable than state)
+    const threadId = activeThreadIdRef.current;
     
     if (intent === 'draft') {
       // NEW DRAFT: Create a new draft with v1
@@ -436,11 +419,21 @@ export default function Create({ threadId }: CreatePageProps = {}) {
       setSelectedDraftId(newDraft.id);
       setSelectedDraftVersion(1);
       
-      // Persist draft to thread (if thread exists)
-      if (currentThread) {
-        saveCurrentDraft(content, { title: 'Draft' }).catch(err => {
-          console.error('Failed to persist draft:', err);
-        });
+      // Persist draft to thread (use threadId from ref)
+      if (threadId) {
+        saveDraftToApi(threadId, content, { title: 'Draft' })
+          .then(savedDraft => {
+            console.log('✅ Draft persisted to DB:', savedDraft.id);
+            // Update local draft with DB id for consistency
+            setDrafts(prev => prev.map(d => 
+              d.id === newDraft.id 
+                ? { ...d, dbId: savedDraft.id } 
+                : d
+            ));
+          })
+          .catch(err => {
+            console.error('Failed to persist draft:', err);
+          });
       }
       
     } else if (intent === 'edit') {
@@ -475,6 +468,24 @@ export default function Create({ threadId }: CreatePageProps = {}) {
         setSelectedDraftId(updatedDraft.id);
         setSelectedDraftVersion(updatedDraft.currentVersion);
         
+        // Persist to DB (update existing draft with new version)
+        if (threadId) {
+          // Use dbId if available, otherwise the local id won't match DB
+          const dbDraftId = (targetDraft as any).dbId;
+          saveDraftToApi(threadId, extractedContent, {
+            draftId: dbDraftId,
+            title: targetDraft.title,
+            editPrompt: 'Edit request',
+            changes,
+          })
+            .then(savedDraft => {
+              console.log('✅ Draft version persisted to DB:', savedDraft.id, 'v' + savedDraft.current_version);
+            })
+            .catch(err => {
+              console.error('Failed to persist draft version:', err);
+            });
+        }
+        
         // Replace the draft with updated version
         return [...prev.slice(0, -1), updatedDraft];
       });
@@ -487,7 +498,7 @@ export default function Create({ threadId }: CreatePageProps = {}) {
       setStreamingContent(null);
       setStreamingIntent(null);
     }, 100);
-  }, [currentThread, saveCurrentDraft]);
+  }, []);
 
   /**
    * Handle AI message completion - persist to database
@@ -587,6 +598,7 @@ export default function Create({ threadId }: CreatePageProps = {}) {
     clearChat();
     setDrafts([]);
     messageDraftMap.current.clear();
+    lastRestoredThreadId.current = null; // Reset so restore will run for new thread
     setSelectedDraftId(null);
     setSelectedDraftVersion(null);
     
@@ -605,6 +617,8 @@ export default function Create({ threadId }: CreatePageProps = {}) {
     clearChat();
     setDrafts([]);
     messageDraftMap.current.clear();
+    lastRestoredThreadId.current = null; // Allow restore on next thread load
+    activeThreadIdRef.current = null;
     setSelectedDraftId(null);
     setSelectedDraftVersion(null);
     clearCurrentThread();
@@ -789,36 +803,37 @@ export default function Create({ threadId }: CreatePageProps = {}) {
 
   /**
    * Restore messages and drafts when a thread is loaded
+   * Only runs when switching to a DIFFERENT thread (not when currentThread object updates)
    */
   useEffect(() => {
-    if (!currentThread) return;
-    
-    // Restore messages from the thread
-    if (currentThread.messages && currentThread.messages.length > 0) {
-      // Convert thread messages to ChatMessage format
-      const restoredMessages = currentThread.messages
-        .sort((a, b) => a.seq - b.seq) // Sort by sequence
-        .map(m => ({
-          id: m.id,
-          role: m.role as 'user' | 'assistant',
-          content: m.content,
-          timestamp: new Date(m.created_at),
-          intent: m.intent as 'edit' | 'ideate' | 'draft' | 'feedback' | undefined,
-        }));
-      
-      restoreMessages(restoredMessages);
-      console.log('✅ Restored', restoredMessages.length, 'messages from thread');
+    if (!currentThread) {
+      lastRestoredThreadId.current = null;
+      return;
     }
     
-    // Restore drafts from the thread
+    // Skip if we've already restored this thread (prevents overwriting local state)
+    if (lastRestoredThreadId.current === currentThread.id) {
+      console.log('⏭️ Skipping restore - thread already loaded:', currentThread.id);
+      return;
+    }
+    
+    console.log('📥 Restoring thread:', currentThread.id);
+    lastRestoredThreadId.current = currentThread.id;
+    
+    // Clear previous message-draft mappings
+    messageDraftMap.current.clear();
+    
+    // Restore drafts first so we can map messages to them
+    let restoredDrafts: Draft[] = [];
     if (currentThread.drafts && currentThread.drafts.length > 0) {
-      const restoredDrafts: Draft[] = currentThread.drafts.map(d => {
+      restoredDrafts = currentThread.drafts.map(d => {
         const versions = (d.versions || []).sort((a, b) => a.version - b.version);
         const latestVersion = versions[versions.length - 1];
         
         return {
           id: d.id,
-          messageId: d.id, // Use draft id as message id for restored drafts
+          dbId: d.id, // Store DB id for persistence
+          messageId: d.id,
           content: latestVersion?.content || '',
           title: d.title || 'Draft',
           currentVersion: d.current_version,
@@ -840,6 +855,68 @@ export default function Create({ threadId }: CreatePageProps = {}) {
         setSelectedDraftId(restoredDrafts[0].id);
         setSelectedDraftVersion(restoredDrafts[0].currentVersion);
       }
+    } else {
+      setDrafts([]);
+    }
+    
+    // Restore messages from the thread
+    if (currentThread.messages && currentThread.messages.length > 0) {
+      // Sort messages by sequence
+      const sortedMessages = [...currentThread.messages].sort((a, b) => a.seq - b.seq);
+      
+      // Track which draft/version to assign to each draft/edit message
+      // We match draft intent messages to draft v1, edit intent messages to subsequent versions
+      let currentDraftIndex = 0;
+      let currentVersionForDraft = 1;
+      
+      // Convert thread messages to ChatMessage format
+      const restoredMessages = sortedMessages.map(m => {
+        const chatMessage = {
+          id: m.id,
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+          timestamp: new Date(m.created_at),
+          intent: m.intent as 'edit' | 'ideate' | 'draft' | 'feedback' | undefined,
+        };
+        
+        // For draft/edit intent messages, link them to the restored drafts
+        if (m.role === 'assistant' && (m.intent === 'draft' || m.intent === 'edit') && restoredDrafts.length > 0) {
+          const targetDraft = restoredDrafts[currentDraftIndex];
+          
+          if (targetDraft) {
+            if (m.intent === 'draft') {
+              // New draft - version 1
+              messageDraftMap.current.set(m.id, {
+                draftId: targetDraft.id,
+                version: 1,
+                intent: 'draft'
+              });
+              currentVersionForDraft = 2; // Next edit will be v2
+            } else if (m.intent === 'edit') {
+              // Edit - next version
+              const versionToUse = Math.min(currentVersionForDraft, targetDraft.currentVersion);
+              messageDraftMap.current.set(m.id, {
+                draftId: targetDraft.id,
+                version: versionToUse,
+                intent: 'edit'
+              });
+              currentVersionForDraft++;
+              
+              // If we've exceeded versions for this draft, move to next draft
+              if (currentVersionForDraft > targetDraft.currentVersion + 1) {
+                currentDraftIndex++;
+                currentVersionForDraft = 1;
+              }
+            }
+          }
+        }
+        
+        return chatMessage;
+      });
+      
+      restoreMessages(restoredMessages);
+      console.log('✅ Restored', restoredMessages.length, 'messages from thread');
+      console.log('✅ Mapped', messageDraftMap.current.size, 'messages to drafts');
     }
   }, [currentThread, restoreMessages]);
 
