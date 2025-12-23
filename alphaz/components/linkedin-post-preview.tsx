@@ -1,7 +1,7 @@
 'use client';
 
-import { Building2 } from 'lucide-react';
-import { memo, useState, useCallback } from 'react';
+import { Building2, Pencil, Check, X } from 'lucide-react';
+import { memo, useState, useCallback, useRef, useEffect } from 'react';
 import { InlineEditPopup } from './inline-edit-popup';
 
 interface LinkedInPostPreviewProps {
@@ -13,6 +13,12 @@ interface LinkedInPostPreviewProps {
   onInlineEdit?: (instruction: string, selectedText: string) => void;
   /** Whether content is currently streaming from AI */
   isStreaming?: boolean;
+  /** Enable direct editing mode (like MS Word) */
+  enableDirectEdit?: boolean;
+  /** Called when content is directly edited */
+  onContentChange?: (newContent: string) => void;
+  /** Whether changes are being saved */
+  isSaving?: boolean;
 }
 
 export const LinkedInPostPreview = memo(({ 
@@ -23,9 +29,71 @@ export const LinkedInPostPreview = memo(({
   enableInlineEdit = false,
   onInlineEdit,
   isStreaming = false,
+  enableDirectEdit = false,
+  onContentChange,
+  isSaving = false,
 }: LinkedInPostPreviewProps) => {
   const [selectedText, setSelectedText] = useState('');
   const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedContent, setEditedContent] = useState(postContent);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  
+  // Sync editedContent when postContent changes from external source
+  useEffect(() => {
+    if (!isEditing) {
+      setEditedContent(postContent);
+    }
+  }, [postContent, isEditing]);
+  
+  // Auto-resize textarea to fit content
+  const adjustTextareaHeight = useCallback(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
+  }, []);
+  
+  // Start editing mode
+  const handleStartEdit = useCallback(() => {
+    setIsEditing(true);
+    setEditedContent(postContent);
+    // Focus textarea after render
+    setTimeout(() => {
+      textareaRef.current?.focus();
+      adjustTextareaHeight();
+    }, 0);
+  }, [postContent, adjustTextareaHeight]);
+  
+  // Cancel editing
+  const handleCancelEdit = useCallback(() => {
+    setIsEditing(false);
+    setEditedContent(postContent);
+  }, [postContent]);
+  
+  // Save edited content
+  const handleSaveEdit = useCallback(() => {
+    if (onContentChange && editedContent !== postContent) {
+      onContentChange(editedContent);
+    }
+    setIsEditing(false);
+  }, [onContentChange, editedContent, postContent]);
+  
+  // Handle textarea changes
+  const handleTextareaChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setEditedContent(e.target.value);
+    adjustTextareaHeight();
+  }, [adjustTextareaHeight]);
+  
+  // Handle keyboard shortcuts in edit mode
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Escape') {
+      handleCancelEdit();
+    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      handleSaveEdit();
+    }
+  }, [handleCancelEdit, handleSaveEdit]);
 
   const handleTextSelection = useCallback(() => {
     if (!enableInlineEdit) return;
@@ -107,25 +175,73 @@ export const LinkedInPostPreview = memo(({
 
       {/* Post Content */}
       <div className="px-4 pb-3">
-        <div 
-          className={`text-sm text-foreground whitespace-pre-wrap break-words leading-relaxed ${
-            enableInlineEdit ? 'select-text cursor-text' : ''
-          }`}
-          onMouseUp={handleTextSelection}
-        >
-          {postContent ? (
-            <>
-              {postContent}
-              {isStreaming && (
-                <span className="inline-block w-2 h-4 bg-blue-500 dark:bg-blue-400 ml-0.5 animate-pulse rounded-sm" />
+        {/* Edit Mode */}
+        {isEditing ? (
+          <div className="space-y-2">
+            <textarea
+              ref={textareaRef}
+              value={editedContent}
+              onChange={handleTextareaChange}
+              onKeyDown={handleKeyDown}
+              className="w-full text-sm text-foreground bg-muted/50 border border-primary/30 rounded-lg p-3 resize-none focus:outline-none focus:ring-2 focus:ring-primary/40 leading-relaxed"
+              style={{ minHeight: '150px' }}
+              placeholder="Write your post content..."
+            />
+            <div className="flex items-center justify-between">
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleCancelEdit}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition"
+                >
+                  <X className="h-3 w-3" />
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveEdit}
+                  disabled={isSaving || editedContent === postContent}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Check className="h-3 w-3" />
+                  {isSaving ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* View Mode */
+          <div className="relative group">
+            <div 
+              className={`text-sm text-foreground whitespace-pre-wrap break-words leading-relaxed ${
+                enableInlineEdit ? 'select-text cursor-text' : ''
+              } ${enableDirectEdit && !isStreaming ? 'pr-8' : ''}`}
+              onMouseUp={handleTextSelection}
+            >
+              {postContent ? (
+                <>
+                  {postContent}
+                  {isStreaming && (
+                    <span className="inline-block w-2 h-4 bg-blue-500 dark:bg-blue-400 ml-0.5 animate-pulse rounded-sm" />
+                  )}
+                </>
+              ) : (
+                <span className="text-muted-foreground italic">
+                  {isStreaming ? 'Generating your post...' : 'Your post content will appear here...'}
+                </span>
               )}
-            </>
-          ) : (
-            <span className="text-muted-foreground italic">
-              {isStreaming ? 'Generating your post...' : 'Your post content will appear here...'}
-            </span>
-          )}
-        </div>
+            </div>
+            {/* Edit Button - Shows on hover when direct edit is enabled */}
+            {enableDirectEdit && postContent && !isStreaming && (
+              <button
+                onClick={handleStartEdit}
+                className="absolute top-0 right-0 p-1.5 text-muted-foreground hover:text-primary hover:bg-muted rounded-md transition opacity-0 group-hover:opacity-100"
+                title="Edit post content"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        )}
       </div>
       
       {/* Inline Edit Popup */}

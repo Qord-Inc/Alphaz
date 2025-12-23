@@ -42,6 +42,10 @@ interface DraftPanelProps {
   onInlineEdit?: (instruction: string, selectedText: string) => void;
   onPostDraft?: (content: string) => Promise<void> | void;
   isPosting?: boolean;
+  /** Called when content is directly edited */
+  onContentEdit?: (draftId: string, newContent: string, version: number) => Promise<void> | void;
+  /** Whether a direct edit is being saved */
+  isSavingEdit?: boolean;
 }
 
 export const DraftPanel = memo(({ 
@@ -60,6 +64,8 @@ export const DraftPanel = memo(({
   onInlineEdit,
   onPostDraft,
   isPosting,
+  onContentEdit,
+  isSavingEdit,
 }: DraftPanelProps) => {
   const [selectedDraftIndex, setSelectedDraftIndex] = useState(drafts.length - 1);
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null); // null means current version
@@ -100,6 +106,17 @@ export const DraftPanel = memo(({
       setTimeout(() => setCopiedId(null), 2000);
     }
   }, [displayContent, onCopyDraft, selectedDraft]);
+  
+  // Handle direct content edit
+  const handleContentEdit = useCallback((newContent: string) => {
+    if (!selectedDraft || !onContentEdit) return;
+    
+    // Get the current version number (the version being viewed)
+    const currentVersion = selectedVersion ?? selectedDraft.currentVersion;
+    
+    // Call the parent handler
+    onContentEdit(selectedDraft.id, newContent, currentVersion);
+  }, [selectedDraft, selectedVersion, onContentEdit]);
 
   // Show panel if we have drafts OR if streaming content
   if (!hasDrafts && !isStreaming) return null;
@@ -296,6 +313,9 @@ export const DraftPanel = memo(({
                   })}
                   enableInlineEdit={true}
                   onInlineEdit={onInlineEdit}
+                  enableDirectEdit={true}
+                  onContentChange={handleContentEdit}
+                  isSaving={isSavingEdit}
                 />
 
                 {/* Draft Actions */}
