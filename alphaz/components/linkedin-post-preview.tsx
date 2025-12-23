@@ -73,11 +73,26 @@ export const LinkedInPostPreview = memo(({
     }
   }, [postContent, isEditing, isControlled]);
   
-  // Auto-resize textarea to fit content
+  // Auto-resize textarea to fit content while preserving scroll position
   const adjustTextareaHeight = useCallback(() => {
     if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+      const textarea = textareaRef.current;
+      
+      // Save scroll positions
+      const scrollContainer = textarea.closest('.overflow-y-auto') as HTMLElement;
+      const savedScrollTop = scrollContainer?.scrollTop ?? 0;
+      const savedTextareaScrollTop = textarea.scrollTop;
+      
+      // Temporarily set height to auto to measure content
+      textarea.style.height = 'auto';
+      const newHeight = textarea.scrollHeight;
+      textarea.style.height = `${newHeight}px`;
+      
+      // Restore scroll positions
+      if (scrollContainer) {
+        scrollContainer.scrollTop = savedScrollTop;
+      }
+      textarea.scrollTop = savedTextareaScrollTop;
     }
   }, []);
   
@@ -138,6 +153,9 @@ export const LinkedInPostPreview = memo(({
     }
   }, [handleCancelEdit, handleSaveEdit]);
 
+  // Store the selection range info for highlighting
+  const [selectionRange, setSelectionRange] = useState<{ start: number; end: number } | null>(null);
+
   const handleTextSelection = useCallback(() => {
     if (!enableInlineEdit) return;
 
@@ -149,20 +167,32 @@ export const LinkedInPostPreview = memo(({
       const range = selection?.getRangeAt(0);
       const rect = range?.getBoundingClientRect();
       
-      if (rect) {
+      if (rect && postContent) {
+        // Find the position of selected text in postContent
+        const start = postContent.indexOf(text);
+        if (start !== -1) {
+          setSelectionRange({ start, end: start + text.length });
+        }
+        
         setSelectedText(text);
         // Position popup below the selection
         setPopupPosition({
           x: rect.left,
           y: rect.bottom + window.scrollY + 8
         });
+        
+        // Clear browser selection since we'll show our own highlight
+        setTimeout(() => {
+          window.getSelection()?.removeAllRanges();
+        }, 0);
       }
     }
-  }, [enableInlineEdit]);
+  }, [enableInlineEdit, postContent]);
 
   const handleClosePopup = useCallback(() => {
     setSelectedText('');
     setPopupPosition(null);
+    setSelectionRange(null);
     window.getSelection()?.removeAllRanges();
   }, []);
 
@@ -170,6 +200,7 @@ export const LinkedInPostPreview = memo(({
     if (onInlineEdit) {
       onInlineEdit(instruction, selectedText);
     }
+    // Clear selection after submit
     handleClosePopup();
   }, [onInlineEdit, handleClosePopup]);
 
@@ -274,7 +305,16 @@ export const LinkedInPostPreview = memo(({
             >
               {postContent ? (
                 <>
-                  {postContent}
+                  {selectionRange ? (
+                    // Render with highlight
+                    <>
+                      {postContent.slice(0, selectionRange.start)}
+                      <mark className="bg-primary/30 text-foreground rounded px-0.5">{postContent.slice(selectionRange.start, selectionRange.end)}</mark>
+                      {postContent.slice(selectionRange.end)}
+                    </>
+                  ) : (
+                    postContent
+                  )}
                   {isStreaming && (
                     <span className="inline-block w-2 h-4 bg-blue-500 dark:bg-blue-400 ml-0.5 animate-pulse rounded-sm" />
                   )}
