@@ -247,6 +247,9 @@ export default function Create({ threadId }: CreatePageProps = {}) {
   
   // Track if we've already restored the current thread (prevent re-restore during active session)
   const lastRestoredThreadId = useRef<string | null>(null);
+  
+  // Track the last user edit prompt for draft versioning
+  const lastEditPromptRef = useRef<string | null>(null);
 
   // Thread management - persist chats and drafts
   const {
@@ -440,6 +443,11 @@ export default function Create({ threadId }: CreatePageProps = {}) {
       // EDIT VERSION: Create a new version of the most recent draft
       const { content: extractedContent, changes } = extractDraftFromEditResponse(content);
       
+      // Get the edit prompt from ref (set by handleInlineEdit or from user input)
+      const editPrompt = lastEditPromptRef.current || 'Edit request';
+      // Clear the ref after using it
+      lastEditPromptRef.current = null;
+      
       setDrafts(prev => {
         if (prev.length === 0) return prev;
         
@@ -450,7 +458,7 @@ export default function Create({ threadId }: CreatePageProps = {}) {
         const updatedDraft = createDraftVersion(
           targetDraft,
           extractedContent,
-          'Edit request',
+          editPrompt,
           changes,
           new Date()
         );
@@ -475,7 +483,7 @@ export default function Create({ threadId }: CreatePageProps = {}) {
           saveDraftToApi(threadId, extractedContent, {
             draftId: dbDraftId,
             title: targetDraft.title,
-            editPrompt: 'Edit request',
+            editPrompt: editPrompt,
             changes,
           })
             .then(savedDraft => {
@@ -583,12 +591,24 @@ export default function Create({ threadId }: CreatePageProps = {}) {
   const handleInlineEdit = useCallback(async (instruction: string, selectedText: string) => {
     if (!drafts.length) return;
     
+    const threadId = activeThreadIdRef.current;
+    
     // Create a special message format for inline edits
     const inlineEditMessage = `Edit the following selected text and rewrite the whole post: "${selectedText}"\n\nInstruction: ${instruction}\n\nPlease provide the full updated post content.`;
     
+    // Store the edit prompt for when the draft version is created
+    lastEditPromptRef.current = instruction;
+    
+    // Persist user message to database
+    if (threadId) {
+      appendMessage('user', inlineEditMessage, undefined, threadId).catch(err => 
+        console.error('Failed to persist inline edit message:', err)
+      );
+    }
+    
     // Send the inline edit as a message
     await sendMessage(inlineEditMessage);
-  }, [drafts, sendMessage]);
+  }, [drafts, sendMessage, appendMessage]);
 
   /**
    * Handle selecting a thread from the history panel
@@ -734,9 +754,14 @@ export default function Create({ threadId }: CreatePageProps = {}) {
       setIsDraftPanelCollapsed(true);
     }
     
+    // If we have drafts, this might be an edit request - store the prompt
+    if (drafts.length > 0) {
+      lastEditPromptRef.current = messageToSend;
+    }
+    
     setInputValue(""); // Clear input immediately for better UX
     await sendMessage(messageToSend);
-  }, [inputValue, isLoading, sendMessage, messages.length, isDraftMode, messages, currentThread, selectedOrganization, newThread, appendMessage]);
+  }, [inputValue, isLoading, sendMessage, messages.length, isDraftMode, messages, currentThread, selectedOrganization, newThread, appendMessage, drafts.length]);
 
   /**
    * Handle keyboard shortcut (Enter to send) - memoized
