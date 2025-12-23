@@ -39,7 +39,7 @@ export const InlineEditPopup = memo(({
     return () => document.removeEventListener('keydown', handleEscape);
   }, [onClose]);
 
-  // Close when clicking outside
+  // Close when clicking outside (but don't clear the selection highlight)
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
@@ -49,6 +49,15 @@ export const InlineEditPopup = memo(({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [onClose]);
+  
+  // Prevent mousedown inside popup from clearing text selection
+  const handleMouseDown = (e: React.MouseEvent) => {
+    // Allow clicking on textarea and buttons, but prevent selection loss
+    if ((e.target as HTMLElement).tagName !== 'TEXTAREA' && 
+        (e.target as HTMLElement).tagName !== 'BUTTON') {
+      e.preventDefault();
+    }
+  };
 
   const handleSubmit = async () => {
     if (!instruction.trim()) return;
@@ -79,6 +88,7 @@ export const InlineEditPopup = memo(({
         top: `${position.y}px`,
         maxWidth: 'calc(100vw - 32px)',
       }}
+      onMouseDown={handleMouseDown}
     >
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-primary/5">
@@ -92,17 +102,7 @@ export const InlineEditPopup = memo(({
         >
           <X className="h-4 w-4" />
         </button>
-      </div>
-
-      {/* Selected Text Preview */}
-      <div className="px-4 py-3 bg-muted/30 border-b border-border">
-        <div className="text-xs font-medium text-muted-foreground mb-1">Selected text:</div>
-        <div className="text-sm text-foreground bg-card px-3 py-2 rounded border border-border max-h-20 overflow-y-auto">
-          "{selectedText.length > 100 ? selectedText.substring(0, 100) + '...' : selectedText}"
-        </div>
-      </div>
-
-      {/* Input Area */}
+      </div>      {/* Input Area */}
       <div className="p-4">
         <Textarea
           ref={textareaRef}
