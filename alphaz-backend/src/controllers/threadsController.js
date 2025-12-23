@@ -456,6 +456,72 @@ async function deleteDraft(req, res) {
   }
 }
 
+// =====================================================
+// Update draft version content in-place (overwrite)
+// =====================================================
+async function updateDraftVersion(req, res) {
+  try {
+    const { draftId } = req.params;
+    const { content, version } = req.body;
+
+    if (!content) {
+      return res.status(400).json({ error: 'content is required' });
+    }
+
+    // Get the draft to find the current version if not specified
+    const { data: draft, error: draftError } = await supabase
+      .from('chat_thread_drafts')
+      .select('id, current_version, thread_id')
+      .eq('id', draftId)
+      .single();
+
+    if (draftError || !draft) {
+      return res.status(404).json({ error: 'Draft not found' });
+    }
+
+    const targetVersion = version || draft.current_version;
+
+    // Update the version content in-place
+    const { data: updatedVersion, error: updateError } = await supabase
+      .from('chat_thread_draft_versions')
+      .update({ content })
+      .eq('draft_id', draftId)
+      .eq('version', targetVersion)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error('Error updating draft version:', updateError);
+      return res.status(500).json({ error: 'Failed to update draft version' });
+    }
+
+    // Update thread's updated_at
+    await supabase
+      .from('chat_threads')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', draft.thread_id);
+
+    // Return updated draft with all versions
+    const { data: draftWithVersions, error: fetchError } = await supabase
+      .from('chat_thread_drafts')
+      .select(`
+        *,
+        versions:chat_thread_draft_versions(*)
+      `)
+      .eq('id', draftId)
+      .single();
+
+    if (fetchError) {
+      return res.json({ draft: { ...draft, updatedVersion } });
+    }
+
+    res.json({ draft: draftWithVersions });
+  } catch (err) {
+    console.error('Error in updateDraftVersion:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
 module.exports = {
   listThreads,
   createThread,
@@ -465,5 +531,6 @@ module.exports = {
   addMessage,
   saveDraft,
   getDraft,
-  deleteDraft
+  deleteDraft,
+  updateDraftVersion
 };

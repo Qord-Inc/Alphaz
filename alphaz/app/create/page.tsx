@@ -13,7 +13,7 @@ import { MarkdownMessage } from "@/components/markdown-message";
 import { DraftPanel, Draft } from "@/components/draft-panel";
 import { ThreadsPanel } from "@/components/threads-panel";
 import { useThreads } from "@/hooks/useThreads";
-import { saveDraft as saveDraftToApi } from "@/lib/threadsApi";
+import { saveDraft as saveDraftToApi, updateDraftVersion as updateDraftVersionApi } from "@/lib/threadsApi";
 import { 
   Paperclip, 
   Mic, 
@@ -241,6 +241,9 @@ export default function Create({ threadId }: CreatePageProps = {}) {
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
   const [streamingIntent, setStreamingIntent] = useState<'draft' | 'edit' | null>(null);
   const [isStreamingDraft, setIsStreamingDraft] = useState(false);
+  
+  // Direct edit state
+  const [isSavingDirectEdit, setIsSavingDirectEdit] = useState(false);
   
   // Map message IDs to draft metadata
   const messageDraftMap = useRef<Map<string, { draftId: string; version: number; intent: string }>>(new Map());
@@ -609,6 +612,58 @@ export default function Create({ threadId }: CreatePageProps = {}) {
     // Send the inline edit as a message
     await sendMessage(inlineEditMessage);
   }, [drafts, sendMessage, appendMessage]);
+
+  /**
+   * Handle direct content edit (like MS Word editing)
+   * Overwrites the current version content in-place (no new version created)
+   */
+  const handleDirectContentEdit = useCallback(async (draftId: string, newContent: string, version: number) => {
+    const threadId = activeThreadIdRef.current;
+    if (!threadId) return;
+    
+    setIsSavingDirectEdit(true);
+    
+    try {
+      // Find the draft being edited
+      const draftIndex = drafts.findIndex(d => d.id === draftId);
+      if (draftIndex === -1) {
+        console.error('Draft not found:', draftId);
+        return;
+      }
+      
+      const targetDraft = drafts[draftIndex];
+      const dbDraftId = (targetDraft as any).dbId;
+      
+      // Update locally - overwrite the current version content
+      const updatedDraft = {
+        ...targetDraft,
+        content: newContent,
+        versions: targetDraft.versions.map(v => 
+          v.version === version 
+            ? { ...v, content: newContent } 
+            : v
+        ),
+      };
+      
+      // Update local state
+      setDrafts(prev => [
+        ...prev.slice(0, draftIndex),
+        updatedDraft,
+        ...prev.slice(draftIndex + 1),
+      ]);
+      
+      // Persist to database - overwrite, not create new version
+      if (dbDraftId) {
+        await updateDraftVersionApi(dbDraftId, newContent, version);
+      }
+      
+      console.log('✅ Direct edit saved (overwritten) successfully');
+    } catch (err) {
+      console.error('Failed to save direct edit:', err);
+    } finally {
+      setIsSavingDirectEdit(false);
+    }
+  }, [drafts]);
 
   /**
    * Handle selecting a thread from the history panel
@@ -1133,6 +1188,8 @@ export default function Create({ threadId }: CreatePageProps = {}) {
                       onInlineEdit={handleInlineEdit}
                       onPostDraft={handlePostToLinkedIn}
                       isPosting={isPostingLinkedIn}
+                      onContentEdit={handleDirectContentEdit}
+                      isSavingEdit={isSavingDirectEdit}
                     />
                   )}
                 </div>

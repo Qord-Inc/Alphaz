@@ -189,3 +189,21 @@ export async function deleteDraft(draftId: string): Promise<void> {
     throw new Error(data.error || 'Failed to delete draft');
   }
 }
+
+/**
+ * Update draft version content in-place (overwrite, no new version)
+ */
+export async function updateDraftVersion(
+  draftId: string,
+  content: string,
+  version?: number
+): Promise<ThreadDraft> {
+  const res = await fetch(`${API_URL}/api/drafts/${draftId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content, version }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to update draft version');
+  return data.draft;
+}
