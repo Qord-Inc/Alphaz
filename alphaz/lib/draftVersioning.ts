@@ -134,11 +134,13 @@ export function extractDraftFromEditResponse(response: string): {
   let changes: string[] = [];
   let currentSection: 'content' | 'changes' | null = null;
   
-  // Headers that indicate the start of content section
-  const contentHeaders = /^(1\.|##?\s*)?(?:Revised|Updated|Edited|Here'?s?\s+(?:the\s+)?(?:revised|updated|edited)|New|Modified)\s*(?:post|version|draft|content)?:?\s*$/i;
+  // Headers that indicate the start of content section (more comprehensive matching)
+  // Matches: "1. Revised post", "## Revised post", "Revised post:", "Here's the updated version", etc.
+  const contentHeaders = /^(?:1\.?\s*|##?\s*)?(?:Revised|Updated|Edited|Here'?s?\s+(?:the\s+)?(?:revised|updated|edited|new)|New|Modified)\s*(?:post|version|draft|content|LinkedIn\s*post)?:?\s*$/i;
   
   // Headers that indicate the start of changes section
-  const changesHeaders = /^(2\.|##?\s*)?(?:Changes\s*(?:made)?|Improvements|Key\s+changes|What\s+(?:I\s+)?(?:changed|improved|updated)|Modifications|Updates\s+made):?\s*$/i;
+  // Matches: "2. Changes made", "## Changes", "Changes made:", "Key changes:", etc.
+  const changesHeaders = /^(?:2\.?\s*|##?\s*)?(?:Changes\s*(?:made)?|Improvements|Key\s+changes|What\s+(?:I\s+)?(?:changed|improved|updated)|Modifications|Updates\s+made):?\s*$/i;
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -210,6 +212,13 @@ export function extractDraftFromEditResponse(response: string): {
   if (!content) {
     content = response.trim();
   }
+  
+  // Final cleanup: Remove any remaining header patterns at the start of content
+  // This catches cases where the header wasn't properly detected as a separate line
+  content = content
+    .replace(/^(?:1\.?\s*)?(?:Revised|Updated|Edited)\s*(?:post|version|draft|content|LinkedIn\s*post)?:?\s*\n+/i, '')
+    .replace(/^(?:Here'?s?\s+(?:the\s+)?(?:revised|updated|edited|new)\s*(?:post|version|draft|content)?:?\s*\n+)/i, '')
+    .trim();
   
   return {
     content,

@@ -19,6 +19,18 @@ interface LinkedInPostPreviewProps {
   onContentChange?: (newContent: string) => void;
   /** Whether changes are being saved */
   isSaving?: boolean;
+  /** Controlled editing state - if provided, component is controlled */
+  isEditing?: boolean;
+  /** Called when edit mode should start */
+  onStartEdit?: () => void;
+  /** Called when edit is cancelled */
+  onCancelEdit?: () => void;
+  /** Called when edit is saved */
+  onSaveEdit?: () => void;
+  /** Current edited content (for controlled mode) */
+  editedContent?: string;
+  /** Called when edited content changes */
+  onEditedContentChange?: (content: string) => void;
 }
 
 export const LinkedInPostPreview = memo(({ 
@@ -32,19 +44,34 @@ export const LinkedInPostPreview = memo(({
   enableDirectEdit = false,
   onContentChange,
   isSaving = false,
+  // Controlled editing props
+  isEditing: controlledIsEditing,
+  onStartEdit,
+  onCancelEdit,
+  onSaveEdit,
+  editedContent: controlledEditedContent,
+  onEditedContentChange,
 }: LinkedInPostPreviewProps) => {
   const [selectedText, setSelectedText] = useState('');
   const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editedContent, setEditedContent] = useState(postContent);
+  
+  // Internal state for uncontrolled mode
+  const [internalIsEditing, setInternalIsEditing] = useState(false);
+  const [internalEditedContent, setInternalEditedContent] = useState(postContent);
+  
+  // Use controlled or uncontrolled state
+  const isControlled = controlledIsEditing !== undefined;
+  const isEditing = isControlled ? controlledIsEditing : internalIsEditing;
+  const editedContent = isControlled ? (controlledEditedContent ?? postContent) : internalEditedContent;
+  
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   
   // Sync editedContent when postContent changes from external source
   useEffect(() => {
-    if (!isEditing) {
-      setEditedContent(postContent);
+    if (!isEditing && !isControlled) {
+      setInternalEditedContent(postContent);
     }
-  }, [postContent, isEditing]);
+  }, [postContent, isEditing, isControlled]);
   
   // Auto-resize textarea to fit content
   const adjustTextareaHeight = useCallback(() => {
@@ -56,34 +83,50 @@ export const LinkedInPostPreview = memo(({
   
   // Start editing mode
   const handleStartEdit = useCallback(() => {
-    setIsEditing(true);
-    setEditedContent(postContent);
+    if (isControlled && onStartEdit) {
+      onStartEdit();
+    } else {
+      setInternalIsEditing(true);
+      setInternalEditedContent(postContent);
+    }
     // Focus textarea after render
     setTimeout(() => {
       textareaRef.current?.focus();
       adjustTextareaHeight();
     }, 0);
-  }, [postContent, adjustTextareaHeight]);
+  }, [postContent, adjustTextareaHeight, isControlled, onStartEdit]);
   
   // Cancel editing
   const handleCancelEdit = useCallback(() => {
-    setIsEditing(false);
-    setEditedContent(postContent);
-  }, [postContent]);
+    if (isControlled && onCancelEdit) {
+      onCancelEdit();
+    } else {
+      setInternalIsEditing(false);
+      setInternalEditedContent(postContent);
+    }
+  }, [postContent, isControlled, onCancelEdit]);
   
   // Save edited content
   const handleSaveEdit = useCallback(() => {
-    if (onContentChange && editedContent !== postContent) {
-      onContentChange(editedContent);
+    if (isControlled && onSaveEdit) {
+      onSaveEdit();
+    } else {
+      if (onContentChange && editedContent !== postContent) {
+        onContentChange(editedContent);
+      }
+      setInternalIsEditing(false);
     }
-    setIsEditing(false);
-  }, [onContentChange, editedContent, postContent]);
+  }, [onContentChange, editedContent, postContent, isControlled, onSaveEdit]);
   
   // Handle textarea changes
   const handleTextareaChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setEditedContent(e.target.value);
+    if (isControlled && onEditedContentChange) {
+      onEditedContentChange(e.target.value);
+    } else {
+      setInternalEditedContent(e.target.value);
+    }
     adjustTextareaHeight();
-  }, [adjustTextareaHeight]);
+  }, [adjustTextareaHeight, isControlled, onEditedContentChange]);
   
   // Handle keyboard shortcuts in edit mode
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -164,12 +207,22 @@ export const LinkedInPostPreview = memo(({
             </p>
           </div>
 
-          {/* More Options */}
-          <button className="text-muted-foreground hover:bg-muted rounded p-1">
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
-            </svg>
-          </button>
+          {/* Edit Button - Always visible in top right */}
+          {enableDirectEdit && postContent && !isStreaming && !isEditing ? (
+            <button 
+              onClick={handleStartEdit}
+              className="text-muted-foreground hover:text-primary hover:bg-muted rounded p-1.5 transition"
+              title="Edit post content"
+            >
+              <Pencil className="h-4 w-4" />
+            </button>
+          ) : (
+            <button className="text-muted-foreground hover:bg-muted rounded p-1">
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
 
@@ -187,34 +240,36 @@ export const LinkedInPostPreview = memo(({
               style={{ minHeight: '150px' }}
               placeholder="Write your post content..."
             />
-            <div className="flex items-center justify-between">
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleCancelEdit}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition"
-                >
-                  <X className="h-3 w-3" />
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSaveEdit}
-                  disabled={isSaving || editedContent === postContent}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Check className="h-3 w-3" />
-                  {isSaving ? 'Saving...' : 'Save'}
-                </button>
+            {/* Only show inline Cancel/Save buttons in uncontrolled mode */}
+            {!isControlled && (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleCancelEdit}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition"
+                  >
+                    <X className="h-3 w-3" />
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveEdit}
+                    disabled={isSaving || editedContent === postContent}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Check className="h-3 w-3" />
+                    {isSaving ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         ) : (
           /* View Mode */
-          <div className="relative group">
+          <div>
             <div 
               className={`text-sm text-foreground whitespace-pre-wrap break-words leading-relaxed ${
                 enableInlineEdit ? 'select-text cursor-text' : ''
-              } ${enableDirectEdit && !isStreaming ? 'pr-8' : ''}`}
+              }`}
               onMouseUp={handleTextSelection}
             >
               {postContent ? (
@@ -230,16 +285,6 @@ export const LinkedInPostPreview = memo(({
                 </span>
               )}
             </div>
-            {/* Edit Button - Shows on hover when direct edit is enabled */}
-            {enableDirectEdit && postContent && !isStreaming && (
-              <button
-                onClick={handleStartEdit}
-                className="absolute top-0 right-0 p-1.5 text-muted-foreground hover:text-primary hover:bg-muted rounded-md transition opacity-0 group-hover:opacity-100"
-                title="Edit post content"
-              >
-                <Pencil className="h-4 w-4" />
-              </button>
-            )}
           </div>
         )}
       </div>

@@ -2,7 +2,7 @@
 
 import { useState, memo, useCallback, useEffect } from 'react';
 import { LinkedInPostPreview } from './linkedin-post-preview';
-import { ChevronLeft, ChevronRight, FileText, Trash2, Copy, Check, Loader2, Share2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, FileText, Trash2, Copy, Check, Loader2, Share2, X, Save } from 'lucide-react';
 
 export interface DraftVersion {
   version: number;
@@ -71,6 +71,10 @@ export const DraftPanel = memo(({
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null); // null means current version
   const [copiedId, setCopiedId] = useState<string | null>(null);
   
+  // Direct edit state
+  const [isEditingDraft, setIsEditingDraft] = useState(false);
+  const [editedDraftContent, setEditedDraftContent] = useState('');
+  
   // Auto-select draft when selectedDraftId changes
   useEffect(() => {
     if (selectedDraftId) {
@@ -82,6 +86,12 @@ export const DraftPanel = memo(({
       }
     }
   }, [selectedDraftId, externalSelectedVersion, drafts]);
+  
+  // Reset editing state when draft changes
+  useEffect(() => {
+    setIsEditingDraft(false);
+    setEditedDraftContent('');
+  }, [selectedDraftIndex]);
 
   const selectedDraft = drafts[selectedDraftIndex];
   const hasDrafts = drafts.length > 0;
@@ -107,7 +117,38 @@ export const DraftPanel = memo(({
     }
   }, [displayContent, onCopyDraft, selectedDraft]);
   
-  // Handle direct content edit
+  // Start editing mode
+  const handleStartEdit = useCallback(() => {
+    setIsEditingDraft(true);
+    setEditedDraftContent(displayContent || selectedDraft?.content || '');
+  }, [displayContent, selectedDraft]);
+  
+  // Cancel editing mode
+  const handleCancelEdit = useCallback(() => {
+    setIsEditingDraft(false);
+    setEditedDraftContent('');
+  }, []);
+  
+  // Save edited content
+  const handleSaveEdit = useCallback(() => {
+    if (!selectedDraft || !onContentEdit) return;
+    
+    // Get the current version number (the version being viewed)
+    const currentVersion = selectedVersion ?? selectedDraft.currentVersion;
+    
+    // Call the parent handler
+    onContentEdit(selectedDraft.id, editedDraftContent, currentVersion);
+    
+    // Reset editing state (will be called after save completes)
+    setIsEditingDraft(false);
+  }, [selectedDraft, selectedVersion, onContentEdit, editedDraftContent]);
+  
+  // Handle edited content change
+  const handleEditedContentChange = useCallback((content: string) => {
+    setEditedDraftContent(content);
+  }, []);
+  
+  // Handle direct content edit (legacy, for uncontrolled mode)
   const handleContentEdit = useCallback((newContent: string) => {
     if (!selectedDraft || !onContentEdit) return;
     
@@ -311,11 +352,18 @@ export const DraftPanel = memo(({
                     hour: '2-digit',
                     minute: '2-digit',
                   })}
-                  enableInlineEdit={true}
+                  enableInlineEdit={!isEditingDraft}
                   onInlineEdit={onInlineEdit}
                   enableDirectEdit={true}
                   onContentChange={handleContentEdit}
                   isSaving={isSavingEdit}
+                  // Controlled editing mode
+                  isEditing={isEditingDraft}
+                  editedContent={editedDraftContent}
+                  onStartEdit={handleStartEdit}
+                  onCancelEdit={handleCancelEdit}
+                  onSaveEdit={handleSaveEdit}
+                  onEditedContentChange={handleEditedContentChange}
                 />
 
                 {/* Draft Actions */}
@@ -418,31 +466,59 @@ export const DraftPanel = memo(({
           {!isCollapsed && (
             <div className="sticky bottom-0 left-0 right-0 border-t border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:backdrop-blur px-6 py-4">
               <div className="flex items-center justify-end gap-3">
-                <button
-                  onClick={handleCopyContent}
-                  disabled={!displayContent}
-                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                    displayContent
-                      ? 'bg-card hover:bg-muted border-border text-foreground'
-                      : 'bg-muted text-muted-foreground cursor-not-allowed border-border'
-                  }`}
-                >
-                  {copiedId === selectedDraft?.id ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                  {copiedId === selectedDraft?.id ? 'Copied' : 'Copy'}
-                </button>
+                {/* Show Cancel/Save when editing, otherwise show Copy/Publish */}
+                {isEditingDraft ? (
+                  <>
+                    <button
+                      onClick={handleCancelEdit}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors bg-card hover:bg-muted border-border text-foreground"
+                    >
+                      <X className="h-4 w-4" />
+                      Cancel
+                    </button>
 
-                <button
-                  onClick={() => displayContent && onPostDraft && onPostDraft(displayContent)}
-                  disabled={!displayContent || !onPostDraft || isStreaming || isPosting}
-                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm ${
-                    !displayContent || !onPostDraft || isStreaming || isPosting
-                      ? 'bg-muted text-muted-foreground cursor-not-allowed'
-                      : 'bg-primary text-primary-foreground hover:bg-primary/90'
-                  }`}
-                >
-                  {isPosting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Share2 className="h-4 w-4" />}
-                  {isPosting ? 'Publishing...' : 'Publish'}
-                </button>
+                    <button
+                      onClick={handleSaveEdit}
+                      disabled={isSavingEdit || editedDraftContent === (displayContent || selectedDraft?.content)}
+                      className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm ${
+                        isSavingEdit || editedDraftContent === (displayContent || selectedDraft?.content)
+                          ? 'bg-muted text-muted-foreground cursor-not-allowed'
+                          : 'bg-primary text-primary-foreground hover:bg-primary/90'
+                      }`}
+                    >
+                      {isSavingEdit ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      {isSavingEdit ? 'Saving...' : 'Save'}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={handleCopyContent}
+                      disabled={!displayContent}
+                      className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                        displayContent
+                          ? 'bg-card hover:bg-muted border-border text-foreground'
+                          : 'bg-muted text-muted-foreground cursor-not-allowed border-border'
+                      }`}
+                    >
+                      {copiedId === selectedDraft?.id ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                      {copiedId === selectedDraft?.id ? 'Copied' : 'Copy'}
+                    </button>
+
+                    <button
+                      onClick={() => displayContent && onPostDraft && onPostDraft(displayContent)}
+                      disabled={!displayContent || !onPostDraft || isStreaming || isPosting}
+                      className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm ${
+                        !displayContent || !onPostDraft || isStreaming || isPosting
+                          ? 'bg-muted text-muted-foreground cursor-not-allowed'
+                          : 'bg-primary text-primary-foreground hover:bg-primary/90'
+                      }`}
+                    >
+                      {isPosting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Share2 className="h-4 w-4" />}
+                      {isPosting ? 'Publishing...' : 'Publish'}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           )}
