@@ -126,47 +126,93 @@ export function extractDraftFromEditResponse(response: string): {
 } {
   // Try to parse structured response first
   // Look for patterns like:
-  // 1. Revised post
-  // 2. Changes made
+  // 1. Revised post / Here's the updated post
+  // 2. Changes made / Key changes / Improvements
   
   const lines = response.split('\n');
   let content = '';
   let changes: string[] = [];
   let currentSection: 'content' | 'changes' | null = null;
   
+  // Headers that indicate the start of content section
+  const contentHeaders = /^(1\.|##?\s*)?(?:Revised|Updated|Edited|Here'?s?\s+(?:the\s+)?(?:revised|updated|edited)|New|Modified)\s*(?:post|version|draft|content)?:?\s*$/i;
+  
+  // Headers that indicate the start of changes section
+  const changesHeaders = /^(2\.|##?\s*)?(?:Changes\s*(?:made)?|Improvements|Key\s+changes|What\s+(?:I\s+)?(?:changed|improved|updated)|Modifications|Updates\s+made):?\s*$/i;
+  
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const trimmedLine = line.trim();
     
+    // Skip empty lines at the start
+    if (!trimmedLine && !content && !currentSection) continue;
+    
     // Detect section headers
-    if (trimmedLine.match(/^1\.|^Revised post|^Updated post|^Edited post/i)) {
+    if (trimmedLine.match(contentHeaders)) {
       currentSection = 'content';
       continue;
-    } else if (trimmedLine.match(/^2\.|^Changes|^Improvements|^What.*improved/i)) {
+    } else if (trimmedLine.match(changesHeaders)) {
       currentSection = 'changes';
       continue;
     }
     
     // Collect content based on current section
     if (currentSection === 'content') {
+      // Stop collecting content if we hit a changes section marker
+      if (trimmedLine.match(changesHeaders)) {
+        currentSection = 'changes';
+        continue;
+      }
       // Preserve original line (don't trim) to maintain spacing
       content += line + '\n';
     } else if (currentSection === 'changes' && trimmedLine) {
       // Extract bullet points or numbered items
       const cleaned = trimmedLine.replace(/^[-*•]\s*/, '').replace(/^\d+\.\s*/, '');
-      if (cleaned) {
+      if (cleaned && !cleaned.match(contentHeaders)) {
         changes.push(cleaned);
       }
+    } else if (!currentSection) {
+      // No section detected yet - might be unstructured
+      // But check if we're hitting a changes section marker
+      if (trimmedLine.match(changesHeaders)) {
+        currentSection = 'changes';
+        continue;
+      }
+      // Collect as content
+      content += line + '\n';
     }
   }
   
-  // If no structured format detected, treat entire response as content
-  if (!content.trim()) {
+  // If no structured format detected (no headers found), try to split on common patterns
+  if (!changes.length && content.trim()) {
+    // Look for changes section at the end (common pattern: content followed by "Changes:" or similar)
+    const changesMatch = content.match(/\n\n(?:2\.\s*)?(?:Changes(?:\s+made)?|Key changes|Improvements|What (?:I )?changed|Updates made):?\s*\n([\s\S]+)$/i);
+    if (changesMatch) {
+      // Extract the changes part
+      const changesText = changesMatch[1];
+      content = content.replace(changesMatch[0], '').trim();
+      
+      // Parse bullet points from changes
+      const bulletLines = changesText.split('\n').filter(l => l.trim());
+      bulletLines.forEach(line => {
+        const cleaned = line.trim().replace(/^[-*•]\s*/, '').replace(/^\d+\.\s*/, '');
+        if (cleaned) {
+          changes.push(cleaned);
+        }
+      });
+    }
+  }
+  
+  // Clean up content - remove trailing whitespace
+  content = content.trim();
+  
+  // If still no content, use the entire response
+  if (!content) {
     content = response.trim();
   }
   
   return {
-    content: content.trim(),
+    content,
     changes: changes.length > 0 ? changes : undefined,
   };
 }

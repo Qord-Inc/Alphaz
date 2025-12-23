@@ -212,19 +212,18 @@ export function useAIChat({
             console.log(`   Is follow-up question: ${isFollowUpQuestion}`);
             console.log(`   Streaming to draft: ${streamingToDraft}`);
             
-            // Clear the streaming progress state from message immediately
-            if (streamingToDraft && !isFollowUpQuestion) {
+            // Only call draft completion if it's actually a draft (not a follow-up question)
+            // Note: We do NOT clear the message content here - the Create page will 
+            // handle showing CTA instead of content for draft/edit intent messages
+            if (streamingToDraft && !isFollowUpQuestion && onDraftStreamComplete) {
+              // Just clear the streaming progress flag (keep content for the CTA)
               setMessages((prev) =>
                 prev.map((msg) =>
                   msg.id === assistantMessageId
-                    ? { ...msg, content: '', isStreamingProgress: false }
+                    ? { ...msg, isStreamingProgress: false }
                     : msg
                 )
               );
-            }
-            
-            // Only call draft completion if it's actually a draft (not a follow-up question)
-            if (streamingToDraft && !isFollowUpQuestion && onDraftStreamComplete) {
               onDraftStreamComplete(fullText, detectedIntent as 'draft' | 'edit', assistantMessageId);
             }
             

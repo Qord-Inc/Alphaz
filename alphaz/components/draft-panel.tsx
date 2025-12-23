@@ -14,6 +14,7 @@ export interface DraftVersion {
 
 export interface Draft {
   id: string;
+  dbId?: string; // Database ID for persisted drafts
   content: string;
   timestamp: Date;
   title?: string;
@@ -260,20 +261,28 @@ export const DraftPanel = memo(({
                         );
                       })}
                     </div>
-                    {/* Show changes for selected version */}
-                    {selectedVersion && selectedDraft.versions.find(v => v.version === selectedVersion)?.changes && (
-                      <div className="mt-3 pt-3 border-t border-border">
-                        <div className="text-xs font-medium text-muted-foreground mb-1">Changes made:</div>
-                        <ul className="text-xs text-foreground space-y-1">
-                          {selectedDraft.versions.find(v => v.version === selectedVersion)!.changes!.map((change, i) => (
-                            <li key={i} className="flex items-start gap-1">
-                              <span className="text-primary mt-0.5">•</span>
-                              <span>{change}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
+                    {/* Show changes for selected version (or current version if none selected) */}
+                    {(() => {
+                      const versionToShow = selectedVersion ?? selectedDraft.currentVersion;
+                      const versionData = selectedDraft.versions.find(v => v.version === versionToShow);
+                      const changes = versionData?.changes;
+                      
+                      if (!changes || changes.length === 0) return null;
+                      
+                      return (
+                        <div className="mt-3 pt-3 border-t border-border">
+                          <div className="text-xs font-medium text-muted-foreground mb-1">Changes made:</div>
+                          <ul className="text-xs text-foreground space-y-1">
+                            {changes.map((change, i) => (
+                              <li key={i} className="flex items-start gap-1">
+                                <span className="text-primary mt-0.5">•</span>
+                                <span>{change}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
                 
