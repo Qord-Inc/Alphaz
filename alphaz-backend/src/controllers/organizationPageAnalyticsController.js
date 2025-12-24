@@ -32,9 +32,9 @@ const getOrganizationPageStats = async (req, res) => {
     } else {
       // Time-bound stats
       const now = new Date();
-      const effectiveNow = new Date('2025-12-03'); // Use November 2025 for LinkedIn API constraints
-      const twoDaysAgo = new Date(effectiveNow);
-      twoDaysAgo.setDate(effectiveNow.getDate() - 2);
+      // LinkedIn API data has ~2 day delay, so we end 2 days before today
+      const twoDaysAgo = new Date(now);
+      twoDaysAgo.setDate(now.getDate() - 2);
       
       const periodDays = {
         '7d': 7,
@@ -177,9 +177,10 @@ const getOrganizationPageDashboard = async (req, res) => {
     const { accessToken } = tokenResult;
     
     // Calculate date ranges
-    const effectiveNow = new Date('2025-11-28');
-    const twoDaysAgo = new Date(effectiveNow);
-    twoDaysAgo.setDate(effectiveNow.getDate() - 2);
+    // LinkedIn API data has ~2 day delay, so we end 2 days before today
+    const now = new Date();
+    const twoDaysAgo = new Date(now);
+    twoDaysAgo.setDate(now.getDate() - 2);
     
     const periodDays = {
       '7d': 7,

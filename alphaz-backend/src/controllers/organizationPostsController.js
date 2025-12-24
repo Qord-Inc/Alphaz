@@ -220,6 +220,7 @@ const getOrganizationPosts = async (req, res) => {
         metrics,
         lifecycleState: post.lifecycleState,
         publishedAt: post.publishedAt,
+        scheduledAt: post.scheduledAt || post.scheduledPublishTime || null,
         distributionTarget: post.target
       };
     });
