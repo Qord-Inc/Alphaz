@@ -50,11 +50,17 @@ const ChatMessage = memo(({
     draftVersion?: number;
     draftTitle?: string;
     isStreamingProgress?: boolean;
+    timestamp?: Date;
   };
   onViewDraft?: (draftId: string, version?: number) => void;
   selectedDraftId?: string | null;
   selectedDraftVersion?: number | null;
 }) => {
+  // Format timestamp as exact time (e.g., "2:34 PM")
+  const formatTime = (date?: Date) => {
+    if (!date) return '';
+    return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
+  };
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(message.content);
   }, [message.content]);
@@ -143,33 +149,43 @@ const ChatMessage = memo(({
             message.role === "user" ? "justify-end" : "justify-start"
           }`}
         >
-          <div
-            className={`rounded-lg px-4 py-3 ${
-              message.role === "user"
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted text-foreground"
-            }`}
-          >
-            <div className="text-sm">
-              {message.role === "assistant" ? (
-                <MarkdownMessage content={message.content} />
-              ) : (
-                <p className="whitespace-pre-wrap break-words">{message.content}</p>
+          <div className="flex flex-col gap-1">
+            <div
+              className={`rounded-lg px-4 py-3 ${
+                message.role === "user"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-foreground"
+              }`}
+            >
+              <div className="text-sm">
+                {message.role === "assistant" ? (
+                  <MarkdownMessage content={message.content} />
+                ) : (
+                  <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                )}
+              </div>
+              
+              {/* Message actions for regular assistant messages */}
+              {message.role === "assistant" && (
+                <div className="flex gap-2 mt-3 pt-2 border-t border-border">
+                  <button
+                    onClick={handleCopy}
+                    className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                    title="Copy message"
+                  >
+                    <Copy className="h-3 w-3" />
+                    Copy
+                  </button>
+                </div>
               )}
             </div>
-            
-            {/* Message actions for regular assistant messages */}
-            {message.role === "assistant" && (
-              <div className="flex gap-2 mt-3 pt-2 border-t border-border">
-                <button
-                  onClick={handleCopy}
-                  className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-                  title="Copy message"
-                >
-                  <Copy className="h-3 w-3" />
-                  Copy
-                </button>
-              </div>
+            {/* Timestamp */}
+            {message.timestamp && (
+              <span className={`text-[10px] text-muted-foreground ${
+                message.role === "user" ? "text-right" : "text-left"
+              }`}>
+                {formatTime(message.timestamp)}
+              </span>
             )}
           </div>
         </div>
@@ -179,6 +195,51 @@ const ChatMessage = memo(({
 });
 
 ChatMessage.displayName = 'ChatMessage';
+
+/**
+ * Date separator component (WhatsApp style)
+ */
+const DateSeparator = memo(({ date }: { date: Date }) => {
+  const formatDate = (d: Date) => {
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    const isToday = d.toDateString() === today.toDateString();
+    const isYesterday = d.toDateString() === yesterday.toDateString();
+    
+    if (isToday) return 'Today';
+    if (isYesterday) return 'Yesterday';
+    
+    // Format as "December 24, 2025"
+    return d.toLocaleDateString(undefined, { 
+      month: 'long', 
+      day: 'numeric', 
+      year: 'numeric' 
+    });
+  };
+
+  return (
+    <div className="sticky top-0 z-10 w-full flex justify-center py-2 pointer-events-none">
+      <div className="px-3 py-1 bg-muted/95 dark:bg-muted/90 rounded-full shadow-sm backdrop-blur-sm pointer-events-auto">
+        <span className="text-xs text-muted-foreground font-medium">
+          {formatDate(date)}
+        </span>
+      </div>
+    </div>
+  );
+});
+
+DateSeparator.displayName = 'DateSeparator';
+
+/**
+ * Group messages by date for sticky headers
+ */
+interface MessageGroup {
+  date: Date;
+  dateKey: string;
+  messages: any[];
+}
 
 /**
  * Memoized message list to prevent re-rendering all messages
@@ -194,16 +255,49 @@ const MessageList = memo(({
   selectedDraftId?: string | null;
   selectedDraftVersion?: number | null;
 }) => {
+  // Group messages by date
+  const messageGroups = useMemo(() => {
+    const groups: MessageGroup[] = [];
+    
+    messages.forEach((message) => {
+      const messageDate = message.timestamp ? new Date(message.timestamp) : new Date();
+      const dateKey = messageDate.toDateString();
+      
+      const existingGroup = groups.find(g => g.dateKey === dateKey);
+      if (existingGroup) {
+        existingGroup.messages.push(message);
+      } else {
+        groups.push({
+          date: messageDate,
+          dateKey,
+          messages: [message]
+        });
+      }
+    });
+    
+    return groups;
+  }, [messages]);
+
   return (
     <>
-      {messages.map((message) => (
-        <ChatMessage 
-          key={message.id} 
-          message={message} 
-          onViewDraft={onViewDraft}
-          selectedDraftId={selectedDraftId}
-          selectedDraftVersion={selectedDraftVersion}
-        />
+      {messageGroups.map((group) => (
+        <div key={group.dateKey} className="relative">
+          {/* Sticky date header */}
+          <DateSeparator date={group.date} />
+          
+          {/* Messages for this date */}
+          <div className="space-y-4">
+            {group.messages.map((message) => (
+              <ChatMessage 
+                key={message.id}
+                message={message} 
+                onViewDraft={onViewDraft}
+                selectedDraftId={selectedDraftId}
+                selectedDraftVersion={selectedDraftVersion}
+              />
+            ))}
+          </div>
+        </div>
       ))}
     </>
   );
