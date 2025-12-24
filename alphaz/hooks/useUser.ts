@@ -61,9 +61,9 @@ export function useUser() {
       }
 
       try {
-        // Fetch with timeout (10 seconds)
+        // Fetch with timeout (50 seconds) - increased to handle slow backend responses
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        const timeoutId = setTimeout(() => controller.abort(), 50000);
 
         const response = await fetch(`${API_BASE_URL}/api/users/${clerkUser.id}`, {
           headers: {
