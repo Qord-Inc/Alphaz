@@ -169,14 +169,9 @@ const getOrganizationDashboard = async (req, res) => {
     const now = new Date();
     // console.log('Current system date:', now.toISOString());
     
-    // Since we're in December 2025, we need to use dates within LinkedIn's 12-month window
-    // Let's use November 2025 minus 3 days as our reference (to respect the 2-day delay)
-    const effectiveNow = new Date('2025-11-28');
-    
-    // console.log('Using effective date for LinkedIn API:', effectiveNow.toISOString());
-    
-    const twoDaysAgo = new Date(effectiveNow);
-    twoDaysAgo.setDate(effectiveNow.getDate() - 2); // LinkedIn data is delayed by 2 days
+    // LinkedIn data is delayed by 2 days, so we use now minus 2 days as our end date
+    const twoDaysAgo = new Date(now);
+    twoDaysAgo.setDate(now.getDate() - 2);
     
     const periodDays = {
       '7d': 7,
@@ -198,9 +193,9 @@ const getOrganizationDashboard = async (req, res) => {
     previousPeriodStart.setDate(previousPeriodEnd.getDate() - daysAgo);
     
     // LinkedIn constraint: data only available from 12 months ago
-    const twelveMonthsAgo = new Date(effectiveNow);
-    twelveMonthsAgo.setFullYear(effectiveNow.getFullYear() - 1);
-    twelveMonthsAgo.setDate(effectiveNow.getDate() + 1); // Add 1 day buffer
+    const twelveMonthsAgo = new Date(now);
+    twelveMonthsAgo.setFullYear(now.getFullYear() - 1);
+    twelveMonthsAgo.setDate(now.getDate() + 1); // Add 1 day buffer
     
     // console.log('LinkedIn data availability window:');
     // console.log(`  Earliest available: ${twelveMonthsAgo.toISOString()}`);

@@ -32,6 +32,7 @@ interface Post {
   };
   lifecycleState: string;
   publishedAt: number;
+  scheduledAt?: number | null;
   distributionTarget?: any;
 }
 
@@ -309,6 +310,20 @@ export const OrganizationPosts: React.FC<OrganizationPostsProps> = ({ onRefresh,
     );
   }
 
+  // Separate posts by state
+  const now = Date.now();
+  const scheduledPosts = posts.filter(post => {
+    const state = post.lifecycleState?.toUpperCase?.() || '';
+    return state === 'SCHEDULED' || (!!post.scheduledAt && post.scheduledAt > now);
+  });
+  const draftPosts = posts.filter(post => (post.lifecycleState?.toUpperCase?.() || '') === 'DRAFT');
+  const publishedPosts = posts.filter(post => {
+    const state = post.lifecycleState?.toUpperCase?.() || '';
+    const isScheduled = state === 'SCHEDULED' || (!!post.scheduledAt && post.scheduledAt > now);
+    const isDraft = state === 'DRAFT';
+    return !isScheduled && !isDraft;
+  });
+
   return (
     <>
       <Card>
@@ -328,60 +343,129 @@ export const OrganizationPosts: React.FC<OrganizationPostsProps> = ({ onRefresh,
           {posts.length === 0 ? (
             <p className="text-gray-500 text-center py-8">No posts found for this organization</p>
           ) : (
-            <div className="space-y-4">
-              {posts.map(post => (
-                <Card 
-                  key={post.id} 
-                  className="cursor-pointer hover:shadow-md dark:hover:shadow-primary/20 transition-all"
-                  onClick={() => setSelectedPost(post)}
-                >
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="text-sm text-muted-foreground">
-                        <Calendar className="w-4 h-4 inline mr-1" />
-                        {formatDistanceToNow(new Date(post.publishedAt || post.createdAt), { addSuffix: true })}
-                      </div>
-                      <div className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
-                        {post.visibility}
-                      </div>
-                    </div>
-
-                    <p className="text-sm mb-3 line-clamp-3 text-foreground">{post.textContent}</p>
-
-                    {post.media.length > 0 && (
-                      <div className="flex gap-2 mb-3">
-                        {post.media.map((item, index) => (
-                          <div key={index} className="text-xs bg-muted px-2 py-1 rounded flex items-center gap-1">
-                            {item.type === 'image' && <Image className="w-3 h-3" />}
-                            {item.type === 'video' && <Video className="w-3 h-3" />}
-                            {item.type === 'article' && <FileText className="w-3 h-3" />}
-                            {item.type}
+            <div className="space-y-6">
+              {scheduledPosts.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <Calendar className="w-4 h-4" /> Scheduled posts ({scheduledPosts.length})
+                  </div>
+                  <div className="space-y-3">
+                    {scheduledPosts.map(post => (
+                      <Card
+                        key={post.id}
+                        className="cursor-pointer hover:shadow-md dark:hover:shadow-primary/20 transition-all border-amber-200 dark:border-amber-800/60"
+                        onClick={() => setSelectedPost(post)}
+                      >
+                        <CardContent className="p-4">
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="text-sm text-muted-foreground">
+                              <Calendar className="w-4 h-4 inline mr-1" />
+                              {post.scheduledAt ? `Scheduled for ${new Date(post.scheduledAt).toLocaleString()}` : 'Scheduled'}
+                            </div>
+                            <div className="text-xs text-amber-700 bg-amber-100 px-2 py-1 rounded dark:text-amber-200 dark:bg-amber-900/40">
+                              Scheduled
+                            </div>
                           </div>
-                        ))}
-                      </div>
-                    )}
+                          <p className="text-sm mb-3 line-clamp-3 text-foreground">{post.textContent}</p>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              )}
 
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                      <span className="flex items-center gap-1 hover:text-foreground transition-colors">
-                        <Heart className="w-4 h-4" />
-                        {post.metrics.likes.toLocaleString()}
-                      </span>
-                      <span className="flex items-center gap-1 hover:text-foreground transition-colors">
-                        <MessageCircle className="w-4 h-4" />
-                        {post.metrics.comments.toLocaleString()}
-                      </span>
-                      <span className="flex items-center gap-1 hover:text-foreground transition-colors">
-                        <Repeat className="w-4 h-4" />
-                        {post.metrics.reposts.toLocaleString()}
-                      </span>
-                      <span className="flex items-center gap-1 hover:text-foreground transition-colors">
-                        <Eye className="w-4 h-4" />
-                        {post.metrics.impressions.toLocaleString()}
-                      </span>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+              {draftPosts.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <FileText className="w-4 h-4" /> Draft posts ({draftPosts.length})
+                  </div>
+                  <div className="space-y-3">
+                    {draftPosts.map(post => (
+                      <Card
+                        key={post.id}
+                        className="cursor-pointer hover:shadow-md dark:hover:shadow-primary/20 transition-all border-slate-200 dark:border-slate-800/60"
+                        onClick={() => setSelectedPost(post)}
+                      >
+                        <CardContent className="p-4">
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="text-sm text-muted-foreground">
+                              <Calendar className="w-4 h-4 inline mr-1" />
+                              {formatDistanceToNow(new Date(post.lastModifiedAt || post.createdAt), { addSuffix: true })}
+                            </div>
+                            <div className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
+                              Draft
+                            </div>
+                          </div>
+                          <p className="text-sm mb-3 line-clamp-3 text-foreground">{post.textContent}</p>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {publishedPosts.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <Calendar className="w-4 h-4" /> Published posts ({publishedPosts.length})
+                  </div>
+                  <div className="space-y-4">
+                    {publishedPosts.map(post => (
+                      <Card 
+                        key={post.id} 
+                        className="cursor-pointer hover:shadow-md dark:hover:shadow-primary/20 transition-all"
+                        onClick={() => setSelectedPost(post)}
+                      >
+                        <CardContent className="p-4">
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="text-sm text-muted-foreground">
+                              <Calendar className="w-4 h-4 inline mr-1" />
+                              {formatDistanceToNow(new Date(post.publishedAt || post.createdAt), { addSuffix: true })}
+                            </div>
+                            <div className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
+                              {post.visibility}
+                            </div>
+                          </div>
+
+                          <p className="text-sm mb-3 line-clamp-3 text-foreground">{post.textContent}</p>
+
+                          {post.media.length > 0 && (
+                            <div className="flex gap-2 mb-3">
+                              {post.media.map((item, index) => (
+                                <div key={index} className="text-xs bg-muted px-2 py-1 rounded flex items-center gap-1">
+                                  {item.type === 'image' && <Image className="w-3 h-3" />}
+                                  {item.type === 'video' && <Video className="w-3 h-3" />}
+                                  {item.type === 'article' && <FileText className="w-3 h-3" />}
+                                  {item.type}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                            <span className="flex items-center gap-1 hover:text-foreground transition-colors">
+                              <Heart className="w-4 h-4" />
+                              {post.metrics.likes.toLocaleString()}
+                            </span>
+                            <span className="flex items-center gap-1 hover:text-foreground transition-colors">
+                              <MessageCircle className="w-4 h-4" />
+                              {post.metrics.comments.toLocaleString()}
+                            </span>
+                            <span className="flex items-center gap-1 hover:text-foreground transition-colors">
+                              <Repeat className="w-4 h-4" />
+                              {post.metrics.reposts.toLocaleString()}
+                            </span>
+                            <span className="flex items-center gap-1 hover:text-foreground transition-colors">
+                              <Eye className="w-4 h-4" />
+                              {post.metrics.impressions.toLocaleString()}
+                            </span>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {(pagination.hasNext || pagination.hasPrev) && (
                 <div className="flex justify-between items-center pt-4">
