@@ -20,7 +20,8 @@ import {
   Loader2,
   Linkedin,
   ChevronDown,
-  LogOut
+  LogOut,
+  PhoneCall
 } from "lucide-react"
 
 interface SidebarProps {
@@ -31,6 +32,7 @@ interface MenuItem {
   icon: any
   label: string
   href: string
+  personalOnly?: boolean
 }
 
 const menuItems: MenuItem[] = [
@@ -38,6 +40,7 @@ const menuItems: MenuItem[] = [
   { icon: PenTool, label: "Create", href: "/create" },
   { icon: TrendingUp, label: "Monitor", href: "/" },
   { icon: Calendar, label: "Plan", href: "/plan" },
+  { icon: PhoneCall, label: "Check-in", href: "/check-in", personalOnly: true } as any,
 ]
 
 export function Sidebar({ className }: SidebarProps) {
@@ -412,15 +415,17 @@ export function Sidebar({ className }: SidebarProps) {
         <ul className="space-y-2 px-2">
           {menuItems.map((item) => {
             const isActive = pathname === item.href
+            const isDisabled = item.personalOnly && selectedProfile !== 'personal'
             return (
               <li key={item.label}>
-                <Link href={item.href} className="cursor-pointer">
+                <Link href={isDisabled ? '#' : item.href} className="cursor-pointer">
                   <Button
                     variant="ghost"
                     className={cn(
                       "w-full justify-start text-gray-300 hover:text-white hover:bg-gray-800 cursor-pointer",
                       isActive && "bg-white text-orange-500 hover:bg-white hover:text-orange-600",
-                      isCollapsed && "justify-center px-2"
+                      isCollapsed && "justify-center px-2",
+                      isDisabled && "opacity-50 pointer-events-none"
                     )}
                   >
                     <item.icon className="h-5 w-5" />
