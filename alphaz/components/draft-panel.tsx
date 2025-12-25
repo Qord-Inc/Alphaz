@@ -254,10 +254,10 @@ export const DraftPanel = memo(({
                       }
                     `}
                   >
-                    <div className="text-xs font-medium text-gray-900">
+                    <div className="text-xs font-medium text-foreground">
                       Draft {drafts.length - index}
                     </div>
-                    <div className="text-xs text-gray-500">
+                    <div className="text-xs text-muted-foreground">
                       {new Date(draft.timestamp).toLocaleTimeString([], { 
                         hour: '2-digit', 
                         minute: '2-digit' 
