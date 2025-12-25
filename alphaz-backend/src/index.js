@@ -11,6 +11,7 @@ const analyticsRoutes = require('./routes/analyticsRoutes');
 const organizationAnalyticsRoutes = require('./routes/organizationAnalyticsRoutes');
 const embeddingsRoutes = require('./routes/embeddingsRoutes');
 const threadsRoutes = require('./routes/threadsRoutes');
+const checkinRoutes = require('./routes/checkinRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -36,6 +37,7 @@ app.use('/api', analyticsRoutes);
 app.use('/api/analytics', organizationAnalyticsRoutes);
 app.use('/api/embeddings', embeddingsRoutes);
 app.use('/api', threadsRoutes);
+app.use('/api', checkinRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
