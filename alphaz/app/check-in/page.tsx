@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, useCallback } from "react"
+import { useEffect, useRef, useState, useCallback, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { useOrganization } from "@/contexts/OrganizationContext"
@@ -22,17 +22,32 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"
 
 type CallStatus = 'idle' | 'connecting' | 'active' | 'ending' | 'completed' | 'error'
 
-interface PersonaData {
-  writingStyle?: string
-  audience?: string
-  contentThemes?: string[]
+interface InsightItem {
+  title?: string
   summary?: string
+  headline?: string
+  description?: string
+  angle?: string
+  why_it_matters?: string
+  suggested_angle?: string
+}
+
+interface CheckinRecord {
+  id?: string
+  key_insights: InsightItem[]
+  content_ideas: InsightItem[]
+  created_at?: string
+  duration_seconds?: number | null
+  user_name?: string
+  model?: string
+  transcript?: string
 }
 
 interface TranscriptEntry {
   role: 'user' | 'assistant'
   text: string
   timestamp: Date
+  seq: number
 }
 
 export default function CheckInPage() {
@@ -46,9 +61,13 @@ export default function CheckInPage() {
   const [isMuted, setIsMuted] = useState(false)
   const [isAISpeaking, setIsAISpeaking] = useState(false)
   
-  // Collected persona data
-  const [personaData, setPersonaData] = useState<PersonaData | null>(null)
-  const [existingPersona, setExistingPersona] = useState<any>(null)
+  // Insights/results
+  const [record, setRecord] = useState<CheckinRecord | null>(null)
+  const [remaining, setRemaining] = useState<number | null>(null)
+  const [nextAllowedAt, setNextAllowedAt] = useState<string | null>(null)
+  const [history, setHistory] = useState<CheckinRecord[]>([])
+  const [showHistoryModal, setShowHistoryModal] = useState(false)
+  const [selectedHistory, setSelectedHistory] = useState<CheckinRecord | null>(null)
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([])
   
   // WebRTC refs
@@ -56,6 +75,11 @@ export default function CheckInPage() {
   const dataChannelRef = useRef<RTCDataChannel | null>(null)
   const audioElementRef = useRef<HTMLAudioElement | null>(null)
   const localStreamRef = useRef<MediaStream | null>(null)
+  const callStartRef = useRef<number | null>(null)
+  const autoEndTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const transcriptSeqRef = useRef<number>(0)
+  // Track conversation item order from OpenAI Realtime events
+  const itemOrderRef = useRef<string[]>([])
 
   const clerkUserId = user?.clerk_user_id
 
@@ -68,13 +92,19 @@ export default function CheckInPage() {
         const resp = await fetch(`${API_BASE_URL}/api/checkin/status/${clerkUserId}`)
         const data = await resp.json()
         
+        setRemaining(data.remaining ?? null)
+        setNextAllowedAt(data.nextAllowedAt || data.nextAvailableAt || null)
+        if (Array.isArray(data.recentCalls)) {
+          setHistory(data.recentCalls)
+        }
+        if (data.latestCall) {
+          setRecord(data.latestCall)
+        }
+
         if (data.blocked) {
           setBlocked(true)
-          setMessage("Your persona has already been captured. Check-in is complete!")
+          setMessage(data.reason || "Daily limit reached. Try again later.")
           setCallStatus('completed')
-          if (data.persona) {
-            setExistingPersona(data.persona)
-          }
         }
       } catch (err) {
         console.error('Failed to check status:', err)
@@ -84,6 +114,13 @@ export default function CheckInPage() {
     checkStatus()
   }, [clerkUserId, isPersonalProfile])
 
+  // Default to most recent history item when available
+  useEffect(() => {
+    if (history.length > 0 && !selectedHistory) {
+      setSelectedHistory(history[0])
+    }
+  }, [history, selectedHistory])
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -92,6 +129,10 @@ export default function CheckInPage() {
   }, [])
 
   const cleanupCall = useCallback(() => {
+    if (autoEndTimeoutRef.current) {
+      clearTimeout(autoEndTimeoutRef.current)
+      autoEndTimeoutRef.current = null
+    }
     if (dataChannelRef.current) {
       dataChannelRef.current.close()
       dataChannelRef.current = null
@@ -109,65 +150,58 @@ export default function CheckInPage() {
     }
   }, [])
 
-  const savePersona = useCallback(async (data: PersonaData) => {
-    if (!clerkUserId) return
-    
+  const stopRealtimeSession = useCallback(() => {
+    // Close local resources; Realtime auto-terminates when peer closes
+    if (dataChannelRef.current && dataChannelRef.current.readyState === 'open') {
+      try {
+        dataChannelRef.current.close()
+      } catch (err) {
+        console.warn('Failed to close data channel', err)
+      }
+    }
+  }, [])
+
+  const saveInsights = useCallback(async () => {
+    if (!clerkUserId) return false
+
+    const transcriptText = transcript.map(t => `${t.role}: ${t.text}`).join('\n')
+    const durationSeconds = callStartRef.current
+      ? Math.max(1, Math.round((Date.now() - callStartRef.current) / 1000))
+      : null
+
     try {
       const resp = await fetch(`${API_BASE_URL}/api/checkin/complete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clerkUserId,
-          writingStyle: data.writingStyle,
-          audience: data.audience,
-          contentThemes: data.contentThemes,
-          summary: data.summary,
-          rawTranscript: transcript.map(t => `${t.role}: ${t.text}`).join('\n')
-        }),
+        body: JSON.stringify({ clerkUserId, transcript: transcriptText, durationSeconds })
       })
 
       const result = await resp.json()
 
       if (!resp.ok) {
-        setMessage(result?.reason || result?.error || "Failed to save persona")
+        setMessage(result?.reason || result?.error || "Failed to save insights")
+        if (result?.nextAllowedAt) setNextAllowedAt(result.nextAllowedAt)
         return false
       }
 
-      setBlocked(true)
+      setRecord(result.record)
+      if (result.record) {
+        setHistory(prev => {
+          const filtered = prev.filter(r => r.id !== result.record.id)
+          return [result.record, ...filtered].slice(0, 5)
+        })
+      }
+      setRemaining(result.remaining ?? null)
+      setNextAllowedAt(result.nextAllowedAt || null)
+      setBlocked(result.remaining === 0)
       setCallStatus('completed')
-      setMessage("Your persona has been captured successfully!")
+      setMessage('Check-in saved. Here are your insights and ideas!')
       return true
     } catch (err: any) {
-      setMessage(err?.message || "Failed to save persona")
+      setMessage(err?.message || "Failed to save insights")
       return false
     }
   }, [clerkUserId, transcript])
-
-  const handleFunctionCall = useCallback(async (functionName: string, args: any) => {
-    if (functionName === 'save_persona') {
-      console.log('Saving persona:', args)
-      const data: PersonaData = {
-        writingStyle: args.writing_style,
-        audience: args.audience,
-        contentThemes: args.content_themes,
-        summary: args.summary
-      }
-      setPersonaData(data)
-      await savePersona(data)
-      
-      // Send function result back
-      if (dataChannelRef.current?.readyState === 'open') {
-        dataChannelRef.current.send(JSON.stringify({
-          type: 'conversation.item.create',
-          item: {
-            type: 'function_call_output',
-            call_id: args.call_id,
-            output: JSON.stringify({ success: true, message: 'Persona saved successfully' })
-          }
-        }))
-      }
-    }
-  }, [savePersona])
 
   const startCall = async () => {
     if (!clerkUserId) return
@@ -189,7 +223,7 @@ export default function CheckInPage() {
         if (err.blocked) {
           setBlocked(true)
           setCallStatus('completed')
-          setMessage("Your persona has already been captured.")
+          setMessage(err.reason || "Daily check-in limit reached.")
           return
         }
         throw new Error(err.error || 'Failed to get session token')
@@ -204,6 +238,18 @@ export default function CheckInPage() {
       // Create peer connection
       const pc = new RTCPeerConnection()
       peerConnectionRef.current = pc
+
+      pc.onconnectionstatechange = () => {
+        const state = pc.connectionState
+        if (state === 'disconnected' || state === 'failed' || state === 'closed') {
+          stopRealtimeSession()
+          cleanupCall()
+          if (callStatus !== 'completed') {
+            setCallStatus('idle')
+            setMessage('Call ended.')
+          }
+        }
+      }
 
       // Set up audio element for AI voice
       const audioEl = document.createElement('audio')
@@ -240,59 +286,76 @@ export default function CheckInPage() {
 
       dc.onopen = () => {
         console.log('Data channel open')
-        // Send initial greeting trigger
+        // Send initial prompt (AI starts the convo proactively, calm pace, one question per turn)
         dc.send(JSON.stringify({
           type: 'response.create',
           response: {
             modalities: ['audio', 'text'],
-            instructions: 'Greet the user warmly and introduce yourself. Then ask your first question about their writing style preferences.'
+            instructions: `Start the call yourself (user hasn't spoken yet). Keep it casual, calm, and unhurried. Ask EXACTLY ONE short question per turn—never stack or offer multiple choices in the same message. Open with: "I'll kick us off—share a quick highlight from today." After they answer, continue one-by-one: what made it stand out; any challenges or lessons; what they're excited to work on next; one LinkedIn-worthy idea. Brief acknowledgements only. Do NOT ask them to end the call—the system will wrap up.`
           }
         }))
       }
+
+      // Reset item order tracking for new call
+      itemOrderRef.current = []
+      transcriptSeqRef.current = 0
 
       dc.onmessage = (e) => {
         const event = JSON.parse(e.data)
         console.log('Realtime event:', event.type, event)
 
         switch (event.type) {
+          case 'conversation.item.created':
+            // A new conversation item (user or assistant) was created
+            // This gives us the TRUE order of the conversation
+            if (event.item?.id) {
+              itemOrderRef.current.push(event.item.id)
+              console.log('Item order updated:', itemOrderRef.current)
+            }
+            break
+
           case 'response.audio_transcript.delta':
             // AI speaking - update transcript
             break
             
           case 'response.audio_transcript.done':
-            // AI finished speaking
+            // AI finished speaking - use item_id for ordering
             if (event.transcript) {
+              const itemId = event.item_id || `assistant-${Date.now()}`
+              const order = itemOrderRef.current.indexOf(itemId)
+              console.log('Assistant transcript done, item_id:', itemId, 'order:', order)
               setTranscript(prev => [...prev, {
                 role: 'assistant',
                 text: event.transcript,
-                timestamp: new Date()
+                timestamp: new Date(),
+                seq: order >= 0 ? order : 1000 + transcriptSeqRef.current++
               }])
             }
             break
             
-          case 'conversation.item.input_audio_transcription.completed':
-            // User finished speaking
+          case 'conversation.item.input_audio_transcription.completed': {
+            // User finished speaking - use item_id for ordering
             if (event.transcript) {
+              const itemId = event.item_id || `user-${Date.now()}`
+              const order = itemOrderRef.current.indexOf(itemId)
+              console.log('User transcript done, item_id:', itemId, 'order:', order)
               setTranscript(prev => [...prev, {
                 role: 'user',
                 text: event.transcript,
-                timestamp: new Date()
+                timestamp: new Date(),
+                seq: order >= 0 ? order : 1000 + transcriptSeqRef.current++
               }])
-            }
-            break
 
-          case 'response.function_call_arguments.done':
-            // Function call completed
-            if (event.name && event.arguments) {
-              try {
-                const args = JSON.parse(event.arguments)
-                args.call_id = event.call_id
-                handleFunctionCall(event.name, args)
-              } catch (err) {
-                console.error('Failed to parse function args:', err)
-              }
+              // Auto-end the call after a short pause (system ends, not user)
+              if (autoEndTimeoutRef.current) clearTimeout(autoEndTimeoutRef.current)
+              autoEndTimeoutRef.current = setTimeout(() => {
+                if (callStatus === 'active') {
+                  endCall()
+                }
+              }, 12000) // 12s of silence after user speech
             }
             break
+          }
 
           case 'error':
             console.error('Realtime error:', event.error)
@@ -305,7 +368,7 @@ export default function CheckInPage() {
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
 
-      const sdpResp = await fetch('https://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17', {
+      const sdpResp = await fetch('https://api.openai.com/v1/realtime?model=gpt-realtime-mini-2025-10-06', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${ephemeralKey}`,
@@ -333,15 +396,9 @@ export default function CheckInPage() {
 
   const endCall = async () => {
     setCallStatus('ending')
-    
-    // If we have persona data already, it's saved
-    // Otherwise just cleanup
+    stopRealtimeSession()
+    await saveInsights()
     cleanupCall()
-    
-    if (!personaData) {
-      setCallStatus('idle')
-      setMessage('Call ended. Start again to complete your check-in.')
-    }
   }
 
   const toggleMute = () => {
@@ -356,6 +413,13 @@ export default function CheckInPage() {
 
   const isLoading = userLoading
   const canStartCall = !isLoading && isPersonalProfile && !blocked && callStatus === 'idle'
+  const orderedTranscript = useMemo(() => {
+    return [...transcript].sort((a, b) => {
+      if (a.seq !== undefined && b.seq !== undefined) return a.seq - b.seq
+      const tDiff = a.timestamp.getTime() - b.timestamp.getTime()
+      return tDiff !== 0 ? tDiff : 0
+    })
+  }, [transcript])
 
   return (
     <AppLayout>
@@ -366,12 +430,21 @@ export default function CheckInPage() {
           <div className="h-10 w-10 rounded-full bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 flex items-center justify-center">
             <Sparkles className="h-5 w-5" />
           </div>
-          <div>
-            <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Personal Check-in</h1>
+          <div className="flex flex-col gap-1">
+            <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Voice Check-in</h1>
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              Have a voice conversation with AI to capture your writing persona
+              Quick 4-minute chat to capture 3 key insights and 3 LinkedIn ideas
             </p>
           </div>
+          {history.length > 0 && (
+            <button
+              onClick={() => setShowHistoryModal(true)}
+              className="ml-auto inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-200 text-xs border border-blue-200 dark:border-blue-800"
+            >
+              <span className="inline-block h-2 w-2 rounded-full bg-blue-500" />
+              {history.length} previous check-in{history.length > 1 ? 's' : ''}
+            </button>
+          )}
         </div>
 
         {/* Personal profile guard */}
@@ -439,8 +512,8 @@ export default function CheckInPage() {
               </p>
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 {callStatus === 'idle' && "Click the button below to start your voice check-in"}
-                {callStatus === 'active' && "Speak naturally - the AI will guide you"}
-                {callStatus === 'completed' && "Your writing persona has been saved"}
+                {callStatus === 'active' && "Speak naturally - the AI will guide you; we'll end automatically"}
+                {callStatus === 'completed' && "Insights and ideas are ready below"}
               </p>
             </div>
 
@@ -511,7 +584,7 @@ export default function CheckInPage() {
             <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Conversation</h3>
               <div className="space-y-3 max-h-48 overflow-y-auto">
-                {transcript.map((entry, idx) => (
+                {orderedTranscript.map((entry, idx) => (
                   <div 
                     key={idx}
                     className={`flex ${entry.role === 'user' ? 'justify-end' : 'justify-start'}`}
@@ -528,73 +601,199 @@ export default function CheckInPage() {
               </div>
             </div>
           )}
+              {/* Results */}
+              {record && callStatus === 'completed' && (
+                <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
+                  <div className="flex flex-col items-center text-center gap-2 py-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-100 dark:border-emerald-800">
+                    <Sparkles className="h-6 w-6 text-emerald-600" />
+                    <div>
+                      <p className="text-lg font-semibold text-emerald-800 dark:text-emerald-100">Check-in Complete!</p>
+                      <p className="text-sm text-emerald-700 dark:text-emerald-200">Great conversation! Here's what we captured from your check-in.</p>
+                      {record.duration_seconds && (
+                        <div className="mt-2 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white dark:bg-emerald-900/40 border border-emerald-200 dark:border-emerald-800 text-sm text-emerald-800 dark:text-emerald-100">
+                          <span>⏱</span>
+                          <span>{Math.floor(record.duration_seconds / 60)}:{String(record.duration_seconds % 60).padStart(2, '0')}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
 
-          {/* Captured persona preview - from current session or existing data */}
-          {(personaData || existingPersona) && callStatus === 'completed' && (
-            <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
-              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Your Captured Persona</h3>
-              
-              {(personaData?.writingStyle || existingPersona?.writing_style) && (
-                <div>
-                  <label className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Writing Style</label>
-                  <p className="text-sm text-gray-900 dark:text-gray-100 mt-1">{personaData?.writingStyle || existingPersona?.writing_style}</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50/60 dark:bg-emerald-900/10 p-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Sparkles className="h-4 w-4 text-emerald-600" />
+                        <span className="text-sm font-semibold text-emerald-800 dark:text-emerald-100">3 Key Insights</span>
+                      </div>
+                      <div className="space-y-2">
+                        {record.key_insights?.map((item, idx) => (
+                          <div key={idx} className="rounded-md bg-white dark:bg-emerald-900/40 p-2 border border-emerald-100 dark:border-emerald-800">
+                            <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-50">{item.title}</p>
+                            {item.summary && <p className="text-sm text-emerald-700 dark:text-emerald-200 mt-1">{item.summary}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/10 p-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Sparkles className="h-4 w-4 text-blue-600" />
+                        <span className="text-sm font-semibold text-blue-800 dark:text-blue-100">3 Content Ideas</span>
+                      </div>
+                      <div className="space-y-2">
+                        {record.content_ideas?.map((item, idx) => (
+                          <div key={idx} className="rounded-md bg-white dark:bg-blue-900/40 p-2 border border-blue-100 dark:border-blue-800">
+                            <p className="text-sm font-semibold text-blue-800 dark:text-blue-50">{item.title || item.headline}</p>
+                            <p className="text-sm text-blue-700 dark:text-blue-200 mt-1">{item.description || item.why_it_matters}</p>
+                            {(item.angle || item.suggested_angle) && (
+                              <p className="text-xs text-blue-600 dark:text-blue-300 mt-1">Angle: {item.angle || item.suggested_angle}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
-              
-              {(personaData?.audience || existingPersona?.audience) && (
-                <div>
-                  <label className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Target Audience</label>
-                  <p className="text-sm text-gray-900 dark:text-gray-100 mt-1">{personaData?.audience || existingPersona?.audience}</p>
+        </Card>
+
+        {/* History modal */}
+        {showHistoryModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <div className="relative w-full max-w-4xl max-h-[85vh] overflow-hidden rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-2xl">
+              <div className="flex items-center gap-3 border-b border-neutral-200 dark:border-neutral-800 px-6 py-4">
+                <div className="h-10 w-10 rounded-full bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center text-white font-semibold">H</div>
+                <div className="flex-1">
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">History</p>
+                  <h2 className="text-lg font-semibold text-neutral-900 dark:text-white">Previous check-ins</h2>
                 </div>
-              )}
-              
-              {((personaData?.contentThemes && personaData.contentThemes.length > 0) || existingPersona?.content_themes) && (
-                <div>
-                  <label className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Content Themes</label>
-                  <ul className="mt-1 space-y-1">
-                    {(personaData?.contentThemes || existingPersona?.content_themes?.split('\n') || []).map((theme: string, idx: number) => (
-                      <li key={idx} className="text-sm text-gray-900 dark:text-gray-100 flex items-start gap-2">
-                        <span className="text-orange-500">•</span>
-                        {theme}
-                      </li>
-                    ))}
+                <div className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400 mr-2">
+                  <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                  {history.length} record{history.length !== 1 ? 's' : ''}
+                </div>
+                <button
+                  onClick={() => setShowHistoryModal(false)}
+                  className="p-2 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 dark:text-neutral-400"
+                  aria-label="Close history"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="flex flex-col md:flex-row">
+                <div className="w-full md:w-80 border-b md:border-b-0 md:border-r border-neutral-200 dark:border-neutral-800 max-h-[85vh] overflow-y-auto">
+                  <ul className="divide-y divide-neutral-200 dark:divide-neutral-800">
+                    {history.map((record, index) => {
+                      const isSelected = selectedHistory?.id === record.id || (!selectedHistory && index === 0)
+                      return (
+                        <li key={record.id || index}>
+                          <button
+                            onClick={() => setSelectedHistory(record)}
+                            className={`w-full text-left px-5 py-4 flex items-start gap-3 transition hover:bg-neutral-50 dark:hover:bg-neutral-800/60 ${isSelected ? 'bg-neutral-50 dark:bg-neutral-800/60' : ''}`}
+                          >
+                            <div className="h-10 w-10 rounded-full bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center text-white font-semibold">
+                              {record.user_name ? record.user_name.charAt(0).toUpperCase() : 'H'}
+                            </div>
+                            <div className="flex-1">
+                              <p className="text-xs text-neutral-500 dark:text-neutral-400">{record.user_name || 'You'}</p>
+                              <p className="text-sm text-neutral-900 dark:text-white">{record.created_at ? new Date(record.created_at).toLocaleString() : 'Previous call'}</p>
+                              <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-1">#{history.length - index}</p>
+                            </div>
+                            <span className="text-[10px] uppercase tracking-wide px-2 py-1 rounded-full bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300">
+                              {record.model || 'GPT-5.1'}
+                            </span>
+                          </button>
+                        </li>
+                      )
+                    })}
                   </ul>
                 </div>
-              )}
 
-              {existingPersona?.raw_persona?.summary && (
-                <div>
-                  <label className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Summary</label>
-                  <p className="text-sm text-gray-900 dark:text-gray-100 mt-1">{existingPersona.raw_persona.summary}</p>
-                </div>
-              )}
+                <div className="flex-1 max-h-[85vh] overflow-y-auto p-6">
+                  {(() => {
+                    const record = selectedHistory || history[0]
+                    if (!record) return (
+                      <div className="text-sm text-neutral-500 dark:text-neutral-400">No previous check-ins yet.</div>
+                    )
+                    return (
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-3">
+                          <div className="h-12 w-12 rounded-full bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center text-white font-semibold text-lg">
+                            {record.user_name ? record.user_name.charAt(0).toUpperCase() : 'H'}
+                          </div>
+                          <div>
+                            <p className="text-sm text-neutral-500 dark:text-neutral-400">{record.user_name || 'You'}</p>
+                            <p className="text-base text-neutral-900 dark:text-white font-semibold">{record.created_at ? new Date(record.created_at).toLocaleString() : 'Previous call'}</p>
+                            <p className="text-xs text-neutral-500 dark:text-neutral-400">Model: {record.model || 'GPT-5.1'} • Duration: {record.duration_seconds ? `${Math.floor(record.duration_seconds / 60)}:${String(record.duration_seconds % 60).padStart(2, '0')}` : '—'}</p>
+                          </div>
+                        </div>
 
-              {existingPersona?.created_at && (
-                <div className="pt-2 border-t border-gray-100 dark:border-gray-800">
-                  <p className="text-xs text-gray-400 dark:text-gray-500">
-                    Captured on {new Date(existingPersona.created_at).toLocaleDateString('en-US', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })}
-                  </p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="p-4 rounded-lg bg-emerald-50/80 dark:bg-emerald-900/20 border border-emerald-200/70 dark:border-emerald-800/70">
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                              <p className="text-sm font-semibold text-neutral-900 dark:text-white">Insights</p>
+                            </div>
+                            <ul className="space-y-2 text-sm text-neutral-800 dark:text-neutral-200 list-disc list-inside">
+                              {record.key_insights?.length ? (
+                                record.key_insights.map((insight, idx) => (
+                                  <li key={idx}>
+                                    <div className="font-semibold text-neutral-900 dark:text-white">{insight.title}</div>
+                                    {insight.summary && <div className="text-neutral-700 dark:text-neutral-300 text-sm">{insight.summary}</div>}
+                                  </li>
+                                ))
+                              ) : (
+                                <li className="list-none text-neutral-500 dark:text-neutral-400">No insights captured.</li>
+                              )}
+                            </ul>
+                          </div>
+
+                          <div className="p-4 rounded-lg bg-amber-50/80 dark:bg-amber-900/20 border border-amber-200/70 dark:border-amber-800/70">
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className="h-2 w-2 rounded-full bg-amber-500" />
+                              <p className="text-sm font-semibold text-neutral-900 dark:text-white">Ideas</p>
+                            </div>
+                            <ul className="space-y-2 text-sm text-neutral-800 dark:text-neutral-200 list-disc list-inside">
+                              {record.content_ideas?.length ? (
+                                record.content_ideas.map((idea, idx) => (
+                                  <li key={idx}>
+                                    <div className="font-semibold text-neutral-900 dark:text-white">{idea.title || idea.headline}</div>
+                                    {(idea.description || idea.why_it_matters) && <div className="text-neutral-700 dark:text-neutral-300 text-sm">{idea.description || idea.why_it_matters}</div>}
+                                    {(idea.angle || idea.suggested_angle) && <div className="text-xs text-neutral-600 dark:text-neutral-400">Angle: {idea.angle || idea.suggested_angle}</div>}
+                                  </li>
+                                ))
+                              ) : (
+                                <li className="list-none text-neutral-500 dark:text-neutral-400">No ideas captured.</li>
+                              )}
+                            </ul>
+                          </div>
+                        </div>
+
+                        {record.transcript && (
+                          <div className="p-4 rounded-lg bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700">
+                            <div className="flex items-center gap-2 mb-2 text-sm font-semibold text-neutral-900 dark:text-white">
+                              <span className="h-2 w-2 rounded-full bg-blue-500" />
+                              Transcript
+                            </div>
+                            <p className="text-sm text-neutral-700 dark:text-neutral-300 whitespace-pre-wrap leading-relaxed">{record.transcript}</p>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
-              )}
+              </div>
             </div>
-          )}
-        </Card>
+          </div>
+        )}
 
         {/* Info section */}
         <Card className="p-4 bg-gray-50 dark:bg-card border-gray-200 dark:border-border">
           <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">How it works</h3>
           <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
-            <li>• Click "Start Check-in Call" to begin a voice conversation</li>
-            <li>• The AI will ask about your writing style, audience, and content themes</li>
-            <li>• Speak naturally - the AI will guide the conversation</li>
-            <li>• Your persona is automatically saved when the conversation ends</li>
-            <li>• This is a one-time check-in per user</li>
+            <li>• Click "Start Check-in Call" for a short guided chat</li>
+            <li>• The AI asks about wins, blockers, and ideas (under 4 minutes)</li>
+            <li>• When you end the call, we extract 3 insights and 3 content ideas</li>
+            <li>• Limit: 2 check-ins per 24 hours</li>
           </ul>
         </Card>
         </div>
