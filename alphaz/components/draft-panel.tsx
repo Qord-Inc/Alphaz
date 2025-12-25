@@ -255,7 +255,7 @@ export const DraftPanel = memo(({
                     `}
                   >
                     <div className="text-xs font-medium text-foreground">
-                      Draft {drafts.length - index}
+                      Draft {index + 1}
                     </div>
                     <div className="text-xs text-muted-foreground">
                       {new Date(draft.timestamp).toLocaleTimeString([], { 
