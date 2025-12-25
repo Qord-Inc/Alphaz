@@ -20,6 +20,7 @@ Guidelines:
 - Capture enough detail to yield 3 key insights and 3 LinkedIn content ideas.
 - When you're done, give a short upbeat wrap-up (no ask to end).`;
 
+const REALTIME_MODEL = 'gpt-realtime-mini-2025-10-06'; //gpt-4o-realtime-preview-2024-12-17
 const RATE_LIMIT_MAX = 2;
 const RATE_LIMIT_WINDOW_HOURS = 24;
 
@@ -134,7 +135,7 @@ async function createRealtimeSession(req, res) {
 
     // Create ephemeral token for WebRTC connection
     const sessionConfig = {
-      model: "gpt-realtime-mini-2025-10-06",
+      model: REALTIME_MODEL,
       voice: "alloy",
       instructions: CHECKIN_INSTRUCTIONS,
       turn_detection: {
@@ -166,7 +167,8 @@ async function createRealtimeSession(req, res) {
     
     return res.json({
       ephemeralKey: data.client_secret?.value,
-      expiresAt: data.client_secret?.expires_at
+      expiresAt: data.client_secret?.expires_at,
+      model: REALTIME_MODEL
     });
 
   } catch (err) {

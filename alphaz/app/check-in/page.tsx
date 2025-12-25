@@ -229,11 +229,13 @@ export default function CheckInPage() {
         throw new Error(err.error || 'Failed to get session token')
       }
 
-      const { ephemeralKey } = await tokenResp.json()
+      const { ephemeralKey, model } = await tokenResp.json()
       
       if (!ephemeralKey) {
         throw new Error('No ephemeral key received')
       }
+      
+      const realtimeModel = model || 'gpt-realtime-mini-2025-10-06'
 
       // Create peer connection
       const pc = new RTCPeerConnection()
@@ -368,7 +370,7 @@ export default function CheckInPage() {
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
 
-      const sdpResp = await fetch('https://api.openai.com/v1/realtime?model=gpt-realtime-mini-2025-10-06', {
+      const sdpResp = await fetch(`https://api.openai.com/v1/realtime?model=${realtimeModel}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${ephemeralKey}`,
