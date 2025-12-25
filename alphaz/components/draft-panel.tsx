@@ -70,6 +70,7 @@ export const DraftPanel = memo(({
   const [selectedDraftIndex, setSelectedDraftIndex] = useState(drafts.length - 1);
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null); // null means current version
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [showPublishConfirm, setShowPublishConfirm] = useState(false);
   
   // Direct edit state
   const [isEditingDraft, setIsEditingDraft] = useState(false);
@@ -116,6 +117,21 @@ export const DraftPanel = memo(({
       setTimeout(() => setCopiedId(null), 2000);
     }
   }, [displayContent, onCopyDraft, selectedDraft]);
+
+  const handlePublishClick = useCallback(() => {
+    if (!displayContent || !onPostDraft || isStreaming || isPosting) return;
+    setShowPublishConfirm(true);
+  }, [displayContent, onPostDraft, isStreaming, isPosting]);
+
+  const handlePublishConfirm = useCallback(() => {
+    if (!displayContent || !onPostDraft || isStreaming || isPosting) return;
+    setShowPublishConfirm(false);
+    onPostDraft(displayContent);
+  }, [displayContent, onPostDraft, isStreaming, isPosting]);
+
+  const handlePublishCancel = useCallback(() => {
+    setShowPublishConfirm(false);
+  }, []);
   
   // Start editing mode
   const handleStartEdit = useCallback(() => {
@@ -506,7 +522,7 @@ export const DraftPanel = memo(({
                     </button>
 
                     <button
-                      onClick={() => displayContent && onPostDraft && onPostDraft(displayContent)}
+                      onClick={handlePublishClick}
                       disabled={!displayContent || !onPostDraft || isStreaming || isPosting}
                       className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm ${
                         !displayContent || !onPostDraft || isStreaming || isPosting
@@ -522,6 +538,54 @@ export const DraftPanel = memo(({
               </div>
             </div>
           )}
+            {showPublishConfirm && (
+              <div
+                className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+                onClick={handlePublishCancel}
+              >
+                <div
+                  className="bg-card text-foreground rounded-2xl shadow-2xl border border-border max-w-lg w-[520px] p-6"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h3 className="text-xl font-semibold">Publish Post</h3>
+                      <p className="text-muted-foreground mt-2">
+                        Are you sure you want to publish this post to LinkedIn?
+                      </p>
+                    </div>
+                    <button
+                      onClick={handlePublishCancel}
+                      className="text-muted-foreground hover:text-foreground"
+                      aria-label="Close publish confirmation"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+
+                  <div className="mt-6 flex items-center justify-end gap-3">
+                    <button
+                      onClick={handlePublishCancel}
+                      className="inline-flex items-center justify-center px-4 py-2 rounded-lg text-sm font-semibold border border-border bg-muted hover:bg-muted/80 text-foreground transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handlePublishConfirm}
+                      disabled={!displayContent || !onPostDraft || isStreaming || isPosting}
+                      className={`inline-flex items-center justify-center px-5 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm ${
+                        !displayContent || !onPostDraft || isStreaming || isPosting
+                          ? 'bg-muted text-muted-foreground cursor-not-allowed'
+                          : 'bg-primary text-primary-foreground hover:bg-primary/90'
+                      }`}
+                    >
+                      {isPosting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Share2 className="h-4 w-4" />}
+                      <span className="ml-2">{isPosting ? 'Publishing...' : 'Publish'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
         </div>
       )}
     </div>

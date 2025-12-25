@@ -1038,10 +1038,11 @@ export default function Create({ threadId }: CreatePageProps = {}) {
       // Sort messages by sequence
       const sortedMessages = [...currentThread.messages].sort((a, b) => a.seq - b.seq);
       
-      // Track which draft/version to assign to each draft/edit message
-      // We match draft intent messages to draft v1, edit intent messages to subsequent versions
-      let currentDraftIndex = 0;
-      let currentVersionForDraft = 1;
+  // Track which draft/version to assign to each draft/edit message
+  // For multiple drafts in the same thread, advance the pointer when we hit a new draft intent
+  let currentDraftIndex = 0;          // points to restoredDrafts[currentDraftIndex]
+  let activeDraftIndex = 0;           // the draft that subsequent edits belong to
+  let currentVersionForDraft = 1;     // version counter for the active draft
       
       // Convert thread messages to ChatMessage format
       const restoredMessages = sortedMessages.map(m => {
@@ -1055,32 +1056,31 @@ export default function Create({ threadId }: CreatePageProps = {}) {
         
         // For draft/edit intent messages, link them to the restored drafts
         if (m.role === 'assistant' && (m.intent === 'draft' || m.intent === 'edit') && restoredDrafts.length > 0) {
-          const targetDraft = restoredDrafts[currentDraftIndex];
-          
-          if (targetDraft) {
-            if (m.intent === 'draft') {
-              // New draft - version 1
+          // When we hit a new draft intent, move the active pointer forward
+          if (m.intent === 'draft') {
+            const targetDraft = restoredDrafts[currentDraftIndex];
+            if (targetDraft) {
               messageDraftMap.current.set(m.id, {
                 draftId: targetDraft.id,
                 version: 1,
                 intent: 'draft'
               });
+              // Set this as the active draft for subsequent edits
+              activeDraftIndex = currentDraftIndex;
               currentVersionForDraft = 2; // Next edit will be v2
-            } else if (m.intent === 'edit') {
-              // Edit - next version
+              // Advance pointer for the next draft creation message
+              currentDraftIndex = Math.min(currentDraftIndex + 1, restoredDrafts.length - 1);
+            }
+          } else if (m.intent === 'edit') {
+            const targetDraft = restoredDrafts[activeDraftIndex];
+            if (targetDraft) {
               const versionToUse = Math.min(currentVersionForDraft, targetDraft.currentVersion);
               messageDraftMap.current.set(m.id, {
                 draftId: targetDraft.id,
                 version: versionToUse,
                 intent: 'edit'
               });
-              currentVersionForDraft++;
-              
-              // If we've exceeded versions for this draft, move to next draft
-              if (currentVersionForDraft > targetDraft.currentVersion + 1) {
-                currentDraftIndex++;
-                currentVersionForDraft = 1;
-              }
+              currentVersionForDraft = Math.min(currentVersionForDraft + 1, targetDraft.currentVersion + 1);
             }
           }
         }
