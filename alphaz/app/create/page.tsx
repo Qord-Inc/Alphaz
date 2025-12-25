@@ -338,6 +338,8 @@ export default function Create({ threadId }: CreatePageProps = {}) {
   
   // Direct edit state
   const [isSavingDirectEdit, setIsSavingDirectEdit] = useState(false);
+  const inputRefCentered = useRef<HTMLTextAreaElement | null>(null);
+  const inputRefFloating = useRef<HTMLTextAreaElement | null>(null);
   
   // Map message IDs to draft metadata
   const messageDraftMap = useRef<Map<string, { draftId: string; version: number; intent: string }>>(new Map());
@@ -929,6 +931,22 @@ export default function Create({ threadId }: CreatePageProps = {}) {
     setInputValue(e.target.value);
   }, []);
 
+  // Auto-resize chat input up to a max height, then allow internal scroll
+  const MAX_INPUT_HEIGHT = 240; // ~ChatGPT feel
+  const adjustInputHeight = useCallback((ref: React.RefObject<HTMLTextAreaElement | null>) => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const newHeight = Math.min(el.scrollHeight, MAX_INPUT_HEIGHT);
+    el.style.height = `${newHeight}px`;
+    el.style.overflowY = el.scrollHeight > MAX_INPUT_HEIGHT ? 'auto' : 'hidden';
+  }, []);
+
+  useEffect(() => {
+    adjustInputHeight(inputRefCentered);
+    adjustInputHeight(inputRefFloating);
+  }, [inputValue, isChatActive, isTransitioning, adjustInputHeight]);
+
   /**
    * Auto-scroll to bottom when messages change
    */
@@ -1179,7 +1197,8 @@ export default function Create({ threadId }: CreatePageProps = {}) {
                       value={inputValue}
                       onChange={handleInputChange}
                       onKeyDown={handleKeyDown}
-                      className="min-h-[60px] border-0 text-base placeholder:text-muted-foreground resize-none focus-visible:ring-0 focus-visible:ring-offset-0 p-5 rounded-t-2xl bg-transparent text-foreground"
+                      ref={inputRefCentered}
+                      className="min-h-[60px] border-0 text-base placeholder:text-muted-foreground resize-none focus-visible:ring-0 focus-visible:ring-offset-0 p-5 rounded-t-2xl bg-transparent text-foreground overflow-y-auto"
                       disabled={isLoading || isTransitioning}
                     />
 
@@ -1308,7 +1327,8 @@ export default function Create({ threadId }: CreatePageProps = {}) {
                         value={inputValue}
                         onChange={handleInputChange}
                         onKeyDown={handleKeyDown}
-                        className="min-h-[70px] border-0 text-base placeholder:text-muted-foreground resize-none focus-visible:ring-0 focus-visible:ring-offset-0 p-5 rounded-t-2xl bg-transparent text-foreground"
+                        ref={inputRefFloating}
+                        className="min-h-[70px] border-0 text-base placeholder:text-muted-foreground resize-none focus-visible:ring-0 focus-visible:ring-offset-0 p-5 rounded-t-2xl bg-transparent text-foreground overflow-y-auto"
                         disabled={isLoading}
                       />
 
