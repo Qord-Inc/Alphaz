@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { useOrganization } from "@/contexts/OrganizationContext"
 import { useUser } from "@/hooks/useUser"
+import { AppLayout } from "@/components/app-layout"
 import { 
   Loader2, 
   Sparkles, 
@@ -357,8 +358,9 @@ export default function CheckInPage() {
   const canStartCall = !isLoading && isPersonalProfile && !blocked && callStatus === 'idle'
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-orange-50 to-white dark:from-background dark:to-background">
-      <div className="max-w-3xl mx-auto py-8 px-4 space-y-6">
+    <AppLayout>
+      <div className="flex-1 overflow-auto bg-gradient-to-b from-orange-50 to-white dark:from-background dark:to-background">
+        <div className="max-w-3xl mx-auto py-8 px-4 space-y-6">
         {/* Header */}
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-full bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 flex items-center justify-center">
@@ -595,7 +597,8 @@ export default function CheckInPage() {
             <li>• This is a one-time check-in per user</li>
           </ul>
         </Card>
+        </div>
       </div>
-    </div>
+    </AppLayout>
   )
 }
