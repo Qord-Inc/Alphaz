@@ -6,7 +6,7 @@ import { AppLayout } from "@/components/app-layout"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { useUser } from "@/hooks/useUser"
-import { Mic, MicOff, Volume2, Loader2, SkipForward, ChevronRight, CheckCircle2 } from "lucide-react"
+import { Mic, MicOff, Volume2, Loader2, SkipForward, ChevronRight, CheckCircle2, Pencil, X, Check } from "lucide-react"
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"
 
@@ -27,6 +27,9 @@ export default function PersonaInterviewPage() {
   const [userAnswers, setUserAnswers] = useState<Record<number, { question: string; category: string; answer: string }>>({})
   const [skippedQuestions, setSkippedQuestions] = useState<Set<number>>(new Set())
   const [isRecording, setIsRecording] = useState(false)
+  const [editingQuestionId, setEditingQuestionId] = useState<number | null>(null)
+  const [editText, setEditText] = useState('')
+  const [isSavingEdit, setIsSavingEdit] = useState(false)
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
@@ -303,6 +306,67 @@ export default function PersonaInterviewPage() {
     })
   }
 
+  const startEditingAnswer = (questionId: number, currentAnswer: string) => {
+    setEditingQuestionId(questionId)
+    setEditText(currentAnswer)
+  }
+
+  const cancelEditing = () => {
+    setEditingQuestionId(null)
+    setEditText('')
+  }
+
+  const saveEditedAnswer = async (questionId: number) => {
+    if (!editText.trim() || !clerkUserId) return
+
+    try {
+      setIsSavingEdit(true)
+      
+      const resp = await fetch(`${API_BASE_URL}/api/persona/answer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clerkUserId,
+          questionId,
+          answer: editText.trim(),
+          skipped: false
+        })
+      })
+
+      if (!resp.ok) {
+        throw new Error('Failed to save edited answer')
+      }
+
+      // Update local state
+      const question = questions.find(q => q.id === questionId)
+      if (question) {
+        setUserAnswers(prev => ({
+          ...prev,
+          [questionId]: {
+            question: question.question,
+            category: question.category,
+            answer: editText.trim()
+          }
+        }))
+      }
+
+      // Remove from skipped if it was skipped
+      setSkippedQuestions(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(questionId)
+        return newSet
+      })
+
+      setEditingQuestionId(null)
+      setEditText('')
+    } catch (err: any) {
+      console.error('Failed to save edit:', err)
+      alert(`Error: ${err.message}`)
+    } finally {
+      setIsSavingEdit(false)
+    }
+  }
+
   // Start the interview (user clicks button, unlocking audio autoplay)
   const startInterview = () => {
     setInterviewState('idle')  // This triggers the useEffect to play first question
@@ -439,9 +503,56 @@ export default function PersonaInterviewPage() {
                               {q.question}
                             </p>
                             {isAnswered && (
-                              <p className="text-sm text-gray-600 dark:text-gray-400 italic">
-                                "{answer.answer}"
-                              </p>
+                              <div className="mt-2">
+                                {editingQuestionId === q.id ? (
+                                  <div className="space-y-2">
+                                    <textarea
+                                      value={editText}
+                                      onChange={(e) => setEditText(e.target.value)}
+                                      className="w-full min-h-[100px] p-3 text-sm border border-emerald-300 dark:border-emerald-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                      placeholder="Type your answer here..."
+                                      autoFocus
+                                    />
+                                    <div className="flex gap-2">
+                                      <Button
+                                        size="sm"
+                                        onClick={() => saveEditedAnswer(q.id)}
+                                        disabled={isSavingEdit || !editText.trim()}
+                                        className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                                      >
+                                        {isSavingEdit ? (
+                                          <Loader2 className="h-4 w-4 animate-spin" />
+                                        ) : (
+                                          <Check className="h-4 w-4" />
+                                        )}
+                                        <span className="ml-1">Save</span>
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={cancelEditing}
+                                        disabled={isSavingEdit}
+                                      >
+                                        <X className="h-4 w-4" />
+                                        <span className="ml-1">Cancel</span>
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="relative">
+                                    <p className="text-sm text-gray-600 dark:text-gray-400 italic pr-8">
+                                      "{answer.answer}"
+                                    </p>
+                                    <button
+                                      onClick={() => startEditingAnswer(q.id, answer.answer)}
+                                      className="absolute top-0 right-0 p-1 rounded hover:bg-emerald-200 dark:hover:bg-emerald-800 transition-colors"
+                                      title="Edit answer"
+                                    >
+                                      <Pencil className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
                             )}
                           </div>
                         </div>
@@ -527,9 +638,56 @@ export default function PersonaInterviewPage() {
                               {q.question}
                             </p>
                             {answer && (
-                              <p className="text-sm text-gray-600 dark:text-gray-400 italic">
-                                "{answer.answer}"
-                              </p>
+                              <div className="mt-2">
+                                {editingQuestionId === q.id ? (
+                                  <div className="space-y-2">
+                                    <textarea
+                                      value={editText}
+                                      onChange={(e) => setEditText(e.target.value)}
+                                      className="w-full min-h-[100px] p-3 text-sm border border-emerald-300 dark:border-emerald-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                      placeholder="Type your answer here..."
+                                      autoFocus
+                                    />
+                                    <div className="flex gap-2">
+                                      <Button
+                                        size="sm"
+                                        onClick={() => saveEditedAnswer(q.id)}
+                                        disabled={isSavingEdit || !editText.trim()}
+                                        className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                                      >
+                                        {isSavingEdit ? (
+                                          <Loader2 className="h-4 w-4 animate-spin" />
+                                        ) : (
+                                          <Check className="h-4 w-4" />
+                                        )}
+                                        <span className="ml-1">Save</span>
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={cancelEditing}
+                                        disabled={isSavingEdit}
+                                      >
+                                        <X className="h-4 w-4" />
+                                        <span className="ml-1">Cancel</span>
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="relative">
+                                    <p className="text-sm text-gray-600 dark:text-gray-400 italic pr-8">
+                                      "{answer.answer}"
+                                    </p>
+                                    <button
+                                      onClick={() => startEditingAnswer(q.id, answer.answer)}
+                                      className="absolute top-0 right-0 p-1 rounded hover:bg-emerald-200 dark:hover:bg-emerald-800 transition-colors"
+                                      title="Edit answer"
+                                    >
+                                      <Pencil className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
                             )}
                           </div>
                         </div>
