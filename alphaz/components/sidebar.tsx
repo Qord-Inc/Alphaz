@@ -21,7 +21,8 @@ import {
   Linkedin,
   ChevronDown,
   LogOut,
-  PhoneCall
+  PhoneCall,
+  Sparkles
 } from "lucide-react"
 
 interface SidebarProps {
@@ -41,6 +42,7 @@ const menuItems: MenuItem[] = [
   { icon: TrendingUp, label: "Monitor", href: "/" },
   { icon: Calendar, label: "Plan", href: "/plan" },
   { icon: PhoneCall, label: "Check-in", href: "/check-in", personalOnly: true } as any,
+  { icon: Sparkles, label: "Personalization", href: "/personalization", personalOnly: true } as any,
 ]
 
 export function Sidebar({ className }: SidebarProps) {
