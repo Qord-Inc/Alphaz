@@ -12,6 +12,7 @@ const organizationAnalyticsRoutes = require('./routes/organizationAnalyticsRoute
 const embeddingsRoutes = require('./routes/embeddingsRoutes');
 const threadsRoutes = require('./routes/threadsRoutes');
 const checkinRoutes = require('./routes/checkinRoutes');
+const personaRoutes = require('./routes/personaRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -27,8 +28,8 @@ app.use(cors(corsOptions));
 
 // Body parsing middleware - note: webhook routes need raw body
 app.use('/api/webhooks', webhookRoutes); // Apply webhook routes before body parser
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+app.use(bodyParser.json({ limit: '50mb' })); // Increased for audio base64 payloads
+app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 
 // API routes
 app.use('/api', userRoutes);
@@ -38,6 +39,7 @@ app.use('/api/analytics', organizationAnalyticsRoutes);
 app.use('/api/embeddings', embeddingsRoutes);
 app.use('/api', threadsRoutes);
 app.use('/api', checkinRoutes);
+app.use('/api/persona', personaRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

@@ -170,7 +170,8 @@ function UserProfileTab() {
         {/* CTA Button */}
         <div className="space-y-3">
           <Button 
-            size="lg" 
+            size="lg"
+            onClick={() => window.location.href = '/personalization/interview'}
             className="w-full bg-orange-600 hover:bg-orange-700 text-white text-lg py-6 rounded-xl shadow-lg shadow-orange-600/30"
           >
             Let's Begin
