@@ -320,38 +320,138 @@ export default function PersonaInterviewPage() {
 
   // Ready screen - user must click to start (unlocks audio autoplay)
   if (interviewState === 'ready') {
+    const allAnswered = questionQueue.length === 0 && answeredCount > 0
+    
     return (
       <AppLayout>
-        <div className="flex-1 flex items-center justify-center p-4 bg-gradient-to-b from-blue-50 to-white dark:from-background dark:to-background">
-          <Card className="max-w-2xl w-full p-8 text-center space-y-6">
-            <div className="h-20 w-20 mx-auto rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
-              <Mic className="h-10 w-10 text-orange-600" />
-            </div>
-            <div>
-              <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-2">
-                User Profile Interview
-              </h2>
-              <p className="text-gray-600 dark:text-gray-400 mb-4">
-                Alphaz will ask you {questions.length || 8} questions to understand your background and goals.
-                Answer by voice or skip questions you prefer not to answer.
-              </p>
-              <p className="text-sm text-gray-500 dark:text-gray-500">
-                This takes about 5-10 minutes.
-              </p>
-            </div>
-            <Button
-              onClick={startInterview}
-              size="lg"
-              className="bg-orange-600 hover:bg-orange-700 text-white px-8"
-              disabled={questions.length === 0}
-            >
-              {questions.length === 0 ? (
-                <><Loader2 className="h-5 w-5 mr-2 animate-spin" /> Loading...</>
-              ) : (
-                <>Start Interview <ChevronRight className="h-5 w-5 ml-2" /></>
+        <div className="flex-1 overflow-auto p-4 bg-gradient-to-b from-blue-50 to-white dark:from-background dark:to-background">
+          <div className="max-w-2xl mx-auto space-y-6 py-8">
+            <Card className="p-8 text-center space-y-6">
+              <div className={`h-20 w-20 mx-auto rounded-full flex items-center justify-center ${
+                allAnswered 
+                  ? 'bg-emerald-100 dark:bg-emerald-900/30' 
+                  : 'bg-orange-100 dark:bg-orange-900/30'
+              }`}>
+                {allAnswered ? (
+                  <CheckCircle2 className="h-10 w-10 text-emerald-600" />
+                ) : (
+                  <Mic className="h-10 w-10 text-orange-600" />
+                )}
+              </div>
+              <div>
+                <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-2">
+                  {allAnswered ? 'All Questions Answered!' : 'User Profile Interview'}
+                </h2>
+                {allAnswered ? (
+                  <p className="text-gray-600 dark:text-gray-400 mb-4">
+                    You've answered all {answeredCount} questions. Alphaz now understands you better!
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-gray-600 dark:text-gray-400 mb-4">
+                      {answeredCount > 0 
+                        ? `You've answered ${answeredCount} of ${questions.length} questions. ${questionQueue.length} remaining.`
+                        : `Alphaz will ask you ${questions.length || 8} questions to understand your background and goals.`
+                      }
+                    </p>
+                    <p className="text-sm text-gray-500 dark:text-gray-500">
+                      {answeredCount > 0 ? 'Continue where you left off.' : 'This takes about 5-10 minutes.'}
+                    </p>
+                  </>
+                )}
+              </div>
+              
+              {!allAnswered && (
+                <Button
+                  onClick={startInterview}
+                  size="lg"
+                  className="bg-orange-600 hover:bg-orange-700 text-white px-8"
+                  disabled={questions.length === 0 || questionQueue.length === 0}
+                >
+                  {questions.length === 0 ? (
+                    <><Loader2 className="h-5 w-5 mr-2 animate-spin" /> Loading...</>
+                  ) : answeredCount > 0 ? (
+                    <>Continue Interview <ChevronRight className="h-5 w-5 ml-2" /></>
+                  ) : (
+                    <>Start Interview <ChevronRight className="h-5 w-5 ml-2" /></>
+                  )}
+                </Button>
               )}
-            </Button>
-          </Card>
+              
+              {allAnswered && (
+                <Button
+                  onClick={() => router.push('/personalization')}
+                  className="bg-orange-600 hover:bg-orange-700"
+                >
+                  Back to Personalization
+                </Button>
+              )}
+            </Card>
+
+            {/* Show answered questions */}
+            {answeredCount > 0 && (
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                  <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                  Your Answers ({answeredCount}/{questions.length})
+                </h3>
+                <div className="space-y-3">
+                  {questions.map((q) => {
+                    const answer = userAnswers[q.id]
+                    const isSkipped = skippedQuestions.has(q.id)
+                    const isAnswered = !!answer
+                    
+                    return (
+                      <Card 
+                        key={q.id} 
+                        className={`p-4 ${
+                          isAnswered 
+                            ? 'bg-emerald-50/50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800'
+                            : isSkipped
+                            ? 'bg-yellow-50/50 dark:bg-yellow-900/10 border-yellow-200 dark:border-yellow-800'
+                            : 'bg-gray-50/50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700'
+                        }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          {isAnswered ? (
+                            <CheckCircle2 className="h-5 w-5 text-emerald-500 mt-0.5 flex-shrink-0" />
+                          ) : isSkipped ? (
+                            <SkipForward className="h-5 w-5 text-yellow-500 mt-0.5 flex-shrink-0" />
+                          ) : (
+                            <div className="h-5 w-5 rounded-full border-2 border-gray-300 dark:border-gray-600 mt-0.5 flex-shrink-0" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                isAnswered
+                                  ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
+                                  : isSkipped
+                                  ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300'
+                                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                              }`}>
+                                {q.category}
+                              </span>
+                              {isSkipped && (
+                                <span className="text-xs text-yellow-600 dark:text-yellow-400">Skipped</span>
+                              )}
+                            </div>
+                            <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                              {q.question}
+                            </p>
+                            {isAnswered && (
+                              <p className="text-sm text-gray-600 dark:text-gray-400 italic">
+                                "{answer.answer}"
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </Card>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </AppLayout>
     )
@@ -360,28 +460,86 @@ export default function PersonaInterviewPage() {
   if (interviewState === 'completed') {
     return (
       <AppLayout>
-        <div className="flex-1 flex items-center justify-center p-4">
-          <Card className="max-w-2xl w-full p-8 text-center space-y-6">
-            <div className="h-20 w-20 mx-auto rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
-              <svg className="h-10 w-10 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
-            <div>
-              <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-2">
-                Interview Complete!
-              </h2>
-              <p className="text-gray-600 dark:text-gray-400">
-                Thank you for sharing your story. Alphaz now understands you better and will create more personalized content.
-              </p>
-            </div>
-            <Button
-              onClick={() => router.push('/personalization')}
-              className="bg-orange-600 hover:bg-orange-700"
-            >
-              Back to Personalization
-            </Button>
-          </Card>
+        <div className="flex-1 overflow-auto p-4 bg-gradient-to-b from-emerald-50 to-white dark:from-background dark:to-background">
+          <div className="max-w-2xl mx-auto space-y-6 py-8">
+            <Card className="p-8 text-center space-y-6">
+              <div className="h-20 w-20 mx-auto rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+                <CheckCircle2 className="h-10 w-10 text-emerald-600" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-2">
+                  Interview Complete!
+                </h2>
+                <p className="text-gray-600 dark:text-gray-400">
+                  Thank you for sharing your story. You answered {answeredCount} of {questions.length} questions.
+                  Alphaz now understands you better and will create more personalized content.
+                </p>
+              </div>
+              <Button
+                onClick={() => router.push('/personalization')}
+                className="bg-orange-600 hover:bg-orange-700"
+              >
+                Back to Personalization
+              </Button>
+            </Card>
+
+            {/* Show all answers */}
+            {answeredCount > 0 && (
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                  <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                  Your Answers ({answeredCount}/{questions.length})
+                </h3>
+                <div className="space-y-3">
+                  {questions.map((q) => {
+                    const answer = userAnswers[q.id]
+                    const isSkipped = skippedQuestions.has(q.id)
+                    
+                    return (
+                      <Card 
+                        key={q.id} 
+                        className={`p-4 ${
+                          answer 
+                            ? 'bg-emerald-50/50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800'
+                            : 'bg-yellow-50/50 dark:bg-yellow-900/10 border-yellow-200 dark:border-yellow-800'
+                        }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          {answer ? (
+                            <CheckCircle2 className="h-5 w-5 text-emerald-500 mt-0.5 flex-shrink-0" />
+                          ) : (
+                            <SkipForward className="h-5 w-5 text-yellow-500 mt-0.5 flex-shrink-0" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                answer
+                                  ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
+                                  : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300'
+                              }`}>
+                                {q.category}
+                              </span>
+                              {isSkipped && (
+                                <span className="text-xs text-yellow-600 dark:text-yellow-400">Skipped</span>
+                              )}
+                            </div>
+                            <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                              {q.question}
+                            </p>
+                            {answer && (
+                              <p className="text-sm text-gray-600 dark:text-gray-400 italic">
+                                "{answer.answer}"
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </Card>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </AppLayout>
     )

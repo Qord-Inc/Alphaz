@@ -1,10 +1,13 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { AppLayout } from "@/components/app-layout"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Sparkles, Timer, Volume2, MessageSquare } from "lucide-react"
+import { useUser } from "@/hooks/useUser"
+import { Sparkles, Timer, Volume2, MessageSquare, CheckCircle2, SkipForward } from "lucide-react"
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"
 
 type TabType = 'user' | 'content' | 'audience' | 'brand' | 'instructions' | 'templates'
 
@@ -69,48 +72,93 @@ export default function PersonalizationPage() {
 }
 
 function UserProfileTab() {
+  const { user } = useUser()
+  const [personaData, setPersonaData] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+
   const questions = [
     {
+      id: 1,
       number: 1,
       category: 'Professional',
       question: 'Tell me about your professional background and current role. What do you do, and how did you get here?'
     },
     {
+      id: 2,
       number: 2,
       category: 'Values',
       question: 'What are your core values and beliefs that guide your work and life?'
     },
     {
+      id: 3,
       number: 3,
       category: 'Interests',
       question: 'What topics are you most passionate about? What could you talk about for hours?'
     },
     {
+      id: 4,
       number: 4,
       category: 'Experience',
       question: 'What challenges or pivotal moments have shaped who you are today?'
     },
     {
+      id: 5,
       number: 5,
       category: 'Perspective',
       question: 'What unique perspectives or insights do you bring that others might not have?'
     },
     {
+      id: 6,
       number: 6,
       category: 'Purpose',
       question: 'What impact do you want to make through your content and presence on LinkedIn?'
     },
     {
+      id: 7,
       number: 7,
       category: 'Personal',
       question: 'What are your hobbies or interests outside of work? What energizes you?'
     },
     {
+      id: 8,
       number: 8,
       category: 'Personality',
       question: 'How would your closest friends or colleagues describe you in three words?'
     }
   ]
+
+  // Load persona data
+  useEffect(() => {
+    if (!user?.clerk_user_id) return
+
+    const loadPersonaData = async () => {
+      try {
+        const resp = await fetch(`${API_BASE_URL}/api/persona/status/${user.clerk_user_id}`)
+        const data = await resp.json()
+        setPersonaData(data)
+      } catch (err) {
+        console.error('Failed to load persona data:', err)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadPersonaData()
+  }, [user?.clerk_user_id])
+
+  // Calculate status for each question
+  const getQuestionStatus = (questionId: number) => {
+    if (!personaData?.userProfile) return 'pending'
+    const answer = personaData.userProfile[`question_${questionId}`]
+    if (!answer) return 'pending'
+    if (answer.skipped) return 'skipped'
+    if (answer.answer) return 'answered'
+    return 'pending'
+  }
+
+  const answeredCount = personaData?.userProfile 
+    ? Object.values(personaData.userProfile).filter((v: any) => v && !v.skipped && v.answer).length 
+    : 0
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -128,9 +176,16 @@ function UserProfileTab() {
             </div>
             
             <div>
-              <h2 className="text-2xl font-semibold mb-2">Let's Get to Know You</h2>
+              <h2 className="text-2xl font-semibold mb-2">
+                {answeredCount === 8 ? 'Profile Complete!' : answeredCount > 0 ? `${answeredCount} of 8 Completed` : "Let's Get to Know You"}
+              </h2>
               <p className="text-white/90">
-                This interactive voice interview will help Alphaz understand your personality, values, and unique perspective.
+                {answeredCount === 8 
+                  ? 'You\'ve completed the interview! Alphaz now knows you better.'
+                  : answeredCount > 0
+                  ? `You've answered ${answeredCount} questions. ${8 - answeredCount} remaining.`
+                  : 'This interactive voice interview will help Alphaz understand your personality, values, and unique perspective.'
+                }
               </p>
             </div>
           </div>
@@ -172,15 +227,22 @@ function UserProfileTab() {
           <Button 
             size="lg"
             onClick={() => window.location.href = '/personalization/interview'}
-            className="w-full bg-orange-600 hover:bg-orange-700 text-white text-lg py-6 rounded-xl shadow-lg shadow-orange-600/30"
+            className={`w-full text-white text-lg py-6 rounded-xl shadow-lg ${
+              answeredCount === 8 
+                ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/30'
+                : 'bg-orange-600 hover:bg-orange-700 shadow-orange-600/30'
+            }`}
           >
-            Let's Begin
+            {answeredCount === 8 ? 'Review Answers' : answeredCount > 0 ? 'Continue Interview' : "Let's Begin"}
             <svg className="ml-2 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
           </Button>
           <p className="text-center text-sm text-gray-500 dark:text-gray-400">
-            Make sure you're in a quiet environment with your microphone enabled
+            {answeredCount === 8 
+              ? 'View and edit your answers anytime'
+              : 'Make sure you\'re in a quiet environment with your microphone enabled'
+            }
           </p>
         </div>
       </div>
@@ -191,23 +253,57 @@ function UserProfileTab() {
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">We'll Cover:</h3>
           
           <div className="space-y-6">
-            {questions.map((item) => (
-              <div key={item.number} className="flex gap-4">
-                <div className="flex-shrink-0">
-                  <div className="h-8 w-8 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-sm font-medium text-gray-600 dark:text-gray-400">
-                    {item.number}
+            {questions.map((item) => {
+              const status = getQuestionStatus(item.id)
+              
+              return (
+                <div key={item.number} className={`flex gap-4 p-3 rounded-lg transition-colors ${
+                  status === 'answered' 
+                    ? 'bg-emerald-50/50 dark:bg-emerald-900/10' 
+                    : status === 'skipped'
+                    ? 'bg-yellow-50/50 dark:bg-yellow-900/10'
+                    : ''
+                }`}>
+                  <div className="flex-shrink-0">
+                    {status === 'answered' ? (
+                      <div className="h-8 w-8 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+                        <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                      </div>
+                    ) : status === 'skipped' ? (
+                      <div className="h-8 w-8 rounded-full bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center">
+                        <SkipForward className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
+                      </div>
+                    ) : (
+                      <div className="h-8 w-8 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-sm font-medium text-gray-600 dark:text-gray-400">
+                        {item.number}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 pt-1">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
+                        status === 'answered'
+                          ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
+                          : status === 'skipped'
+                          ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300'
+                          : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
+                      }`}>
+                        {item.category}
+                      </div>
+                      {status === 'answered' && (
+                        <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">✓ Answered</span>
+                      )}
+                      {status === 'skipped' && (
+                        <span className="text-xs text-yellow-600 dark:text-yellow-400 font-medium">Skipped</span>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-700 dark:text-gray-300">
+                      {item.question}
+                    </p>
                   </div>
                 </div>
-                <div className="flex-1 pt-1">
-                  <div className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 mb-2">
-                    {item.category}
-                  </div>
-                  <p className="text-sm text-gray-700 dark:text-gray-300">
-                    {item.question}
-                  </p>
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </Card>
       </div>
