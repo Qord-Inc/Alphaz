@@ -22,7 +22,7 @@ export default function PersonaInterviewPage() {
   const router = useRouter()
   const { user, loading: userLoading } = useUser()
   const [questions, setQuestions] = useState<Question[]>([])
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
+  const [questionQueue, setQuestionQueue] = useState<number[]>([]) // Queue of question IDs to ask
   const [interviewState, setInterviewState] = useState<InterviewState>('ready')
   const [userAnswers, setUserAnswers] = useState<Record<number, { question: string; category: string; answer: string }>>({})
   const [skippedQuestions, setSkippedQuestions] = useState<Set<number>>(new Set())
@@ -31,10 +31,12 @@ export default function PersonaInterviewPage() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const audioRef = useRef<HTMLAudioElement | null>(null)
-  const playedQuestionIndexRef = useRef<number>(-1)
+  const playedQuestionIdRef = useRef<number>(-1)
 
   const clerkUserId = user?.clerk_user_id
-  const currentQuestion = questions[currentQuestionIndex]
+  // Current question is the first in the queue
+  const currentQuestionId = questionQueue[0]
+  const currentQuestion = questions.find(q => q.id === currentQuestionId)
   
   // Calculate progress - only count answered (not skipped)
   const answeredCount = Object.keys(userAnswers).length
@@ -54,36 +56,45 @@ export default function PersonaInterviewPage() {
         })
 
         const data = await resp.json()
-        setQuestions(data.questions || [])
+        const loadedQuestions = data.questions || []
+        setQuestions(loadedQuestions)
         
-        // Resume from last progress and load existing answers
-        if (data.persona?.progress > 0) {
-          setCurrentQuestionIndex(data.persona.progress)
-          
-          // Load existing answers from user_profile
-          const userProfile = data.persona.user_profile || {}
-          const loadedAnswers: Record<number, { question: string; category: string; answer: string }> = {}
-          const loadedSkipped = new Set<number>()
-          
-          Object.entries(userProfile).forEach(([key, value]: [string, any]) => {
-            const match = key.match(/^question_(\d+)$/)
-            if (match && value) {
-              const qId = parseInt(match[1])
-              if (value.skipped) {
-                loadedSkipped.add(qId)
-              } else if (value.answer) {
-                loadedAnswers[qId] = {
-                  question: value.question,
-                  category: value.category,
-                  answer: value.answer
-                }
+        // Load existing answers from user_profile
+        const userProfile = data.persona?.user_profile || {}
+        const loadedAnswers: Record<number, { question: string; category: string; answer: string }> = {}
+        const loadedSkipped: number[] = []
+        const answeredIds = new Set<number>()
+        
+        Object.entries(userProfile).forEach(([key, value]: [string, any]) => {
+          const match = key.match(/^question_(\d+)$/)
+          if (match && value) {
+            const qId = parseInt(match[1])
+            if (value.skipped) {
+              loadedSkipped.push(qId)
+            } else if (value.answer) {
+              loadedAnswers[qId] = {
+                question: value.question,
+                category: value.category,
+                answer: value.answer
               }
+              answeredIds.add(qId)
             }
-          })
-          
-          setUserAnswers(loadedAnswers)
-          setSkippedQuestions(loadedSkipped)
-        }
+          }
+        })
+        
+        setUserAnswers(loadedAnswers)
+        setSkippedQuestions(new Set(loadedSkipped))
+        
+        // Build question queue: skipped questions first, then remaining unanswered
+        const allQuestionIds = loadedQuestions.map((q: Question) => q.id)
+        const unansweredIds = allQuestionIds.filter((id: number) => 
+          !answeredIds.has(id) && !loadedSkipped.includes(id)
+        )
+        
+        // Priority: skipped first (sorted by id), then unanswered (sorted by id)
+        const queue = [...loadedSkipped.sort((a, b) => a - b), ...unansweredIds]
+        setQuestionQueue(queue)
+        
       } catch (err) {
         console.error('Failed to load questions:', err)
       }
@@ -95,11 +106,11 @@ export default function PersonaInterviewPage() {
   // Play AI question when question changes (only after interview started)
   useEffect(() => {
     // Only play if: we have a question, state is idle, and we haven't played this question yet
-    if (currentQuestion && interviewState === 'idle' && playedQuestionIndexRef.current !== currentQuestionIndex) {
-      playedQuestionIndexRef.current = currentQuestionIndex
+    if (currentQuestion && interviewState === 'idle' && playedQuestionIdRef.current !== currentQuestionId) {
+      playedQuestionIdRef.current = currentQuestionId
       playQuestion()
     }
-  }, [currentQuestion, interviewState, currentQuestionIndex])
+  }, [currentQuestion, interviewState, currentQuestionId])
 
   const playQuestion = async () => {
     if (!currentQuestion) return
@@ -199,7 +210,9 @@ export default function PersonaInterviewPage() {
       }
 
       // Save answer
-      await saveAnswer(currentQuestion.id, transcription, false)
+      if (currentQuestion) {
+        await saveAnswer(currentQuestion.id, transcription, false)
+      }
 
       // Move to next question
       nextQuestion()
@@ -233,7 +246,7 @@ export default function PersonaInterviewPage() {
       const result = await resp.json()
       console.log('Answer saved successfully. Progress:', result.progress)
 
-      if (!skipped) {
+      if (!skipped && currentQuestion) {
         setUserAnswers(prev => ({ 
           ...prev, 
           [questionId]: {
@@ -242,7 +255,7 @@ export default function PersonaInterviewPage() {
             answer
           }
         }))
-      } else {
+      } else if (skipped) {
         setSkippedQuestions(prev => new Set(prev).add(questionId))
       }
     } catch (err: any) {
@@ -252,17 +265,23 @@ export default function PersonaInterviewPage() {
   }
 
   const skipQuestion = async () => {
-    await saveAnswer(currentQuestion.id, '', true)
-    nextQuestion()
+    if (currentQuestion) {
+      await saveAnswer(currentQuestion.id, '', true)
+      nextQuestion()
+    }
   }
 
   const nextQuestion = () => {
-    if (currentQuestionIndex < questions.length - 1) {
-      setCurrentQuestionIndex(prev => prev + 1)
-      setInterviewState('idle')
-    } else {
-      setInterviewState('completed')
-    }
+    // Remove current question from queue
+    setQuestionQueue(prev => {
+      const newQueue = prev.slice(1)
+      if (newQueue.length === 0) {
+        setInterviewState('completed')
+      } else {
+        setInterviewState('idle')
+      }
+      return newQueue
+    })
   }
 
   const base64ToBlob = (base64: string, mimeType: string) => {
@@ -384,7 +403,7 @@ export default function PersonaInterviewPage() {
                 </span>
               </div>
               <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                Question {currentQuestionIndex + 1} of {questions.length}
+                Question {questions.length - questionQueue.length + 1} of {questions.length}
               </span>
             </div>
             <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
