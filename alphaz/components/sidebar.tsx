@@ -37,10 +37,10 @@ interface MenuItem {
 }
 
 const menuItems: MenuItem[] = [
-  { icon: BarChart3, label: "Dashboard", href: "/dashboard" },
+  // { icon: BarChart3, label: "Dashboard", href: "/dashboard" },
   { icon: PenTool, label: "Create", href: "/create" },
   { icon: TrendingUp, label: "Monitor", href: "/" },
-  { icon: Calendar, label: "Plan", href: "/plan" },
+  // { icon: Calendar, label: "Plan", href: "/plan" },
   { icon: PhoneCall, label: "Check-in", href: "/check-in", personalOnly: true } as any,
   { icon: Sparkles, label: "Personalization", href: "/personalization", personalOnly: true } as any,
 ]
