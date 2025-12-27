@@ -1,5 +1,5 @@
-const { getLinkedInAccessToken } = require('./linkedinController');
-const config = require('../config/linkedin');
+const { getLinkedInAccessToken } = require('../core/linkedinController');
+const config = require('../../config/linkedin');
 
 /**
  * Get member follower statistics (lifetime or time-bound)

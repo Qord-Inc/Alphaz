@@ -5,16 +5,16 @@ const {
   getOrganizationNetworkSize,
   getOrganizationDashboard,
   getOrganizationOverview
-} = require('../controllers/organizationAnalyticsController');
-const { getSimpleOrganizationMetrics } = require('../controllers/simpleOrgAnalytics');
+} = require('../../controllers/monitor/organizationAnalyticsController');
+const { getSimpleOrganizationMetrics } = require('../../controllers/monitor/simpleOrgAnalytics');
 const { 
   getOrganizationPageStats,
   getOrganizationPageDashboard
-} = require('../controllers/organizationPageAnalyticsController');
+} = require('../../controllers/monitor/organizationPageAnalyticsController');
 const {
   getOrganizationPosts,
   getPostDetails
-} = require('../controllers/organizationPostsController');
+} = require('../../controllers/monitor/organizationPostsController');
 
 // Get organization follower statistics (lifetime or time-bound)
 router.get('/organization/followers/:clerkUserId/:organizationId', getOrganizationFollowerStats);

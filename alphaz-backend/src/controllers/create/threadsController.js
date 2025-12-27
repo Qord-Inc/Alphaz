@@ -1,4 +1,4 @@
-const supabase = require('../config/supabase');
+const supabase = require('../../config/supabase');
 
 // =====================================================
 // List threads for a user/organization

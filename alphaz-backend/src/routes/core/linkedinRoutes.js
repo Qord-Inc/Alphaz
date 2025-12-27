@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const linkedinController = require('../controllers/linkedinController');
+const linkedinController = require('../../controllers/core/linkedinController');
 
 // Generate LinkedIn OAuth URL
 router.get('/auth/linkedin/url', linkedinController.getLinkedInAuthUrl);

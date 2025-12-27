@@ -1,5 +1,5 @@
 const { Webhook } = require('@clerk/clerk-sdk-node');
-const supabase = require('../config/supabase');
+const supabase = require('../../config/supabase');
 
 // Handle Clerk webhook events
 async function handleClerkWebhook(req, res) {

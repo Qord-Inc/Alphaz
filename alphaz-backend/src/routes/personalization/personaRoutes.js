@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const personaController = require('../controllers/personaController');
+const personaController = require('../../controllers/personalization/personaController');
 
 // Get persona status and questions
 router.get('/status/:clerkUserId', personaController.getPersonaStatus);

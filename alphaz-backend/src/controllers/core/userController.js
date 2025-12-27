@@ -1,5 +1,5 @@
-const supabase = require('../config/supabase');
-const clerk = require('../config/clerk');
+const supabase = require('../../config/supabase');
+const clerk = require('../../config/clerk');
 
 // Create a new user after successful Clerk authentication
 async function createUser(req, res) {

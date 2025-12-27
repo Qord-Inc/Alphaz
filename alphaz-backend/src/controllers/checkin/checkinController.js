@@ -1,4 +1,4 @@
-const supabase = require('../config/supabase');
+const supabase = require('../../config/supabase');
 const OpenAI = require('openai');
 const { z } = require('zod');
 

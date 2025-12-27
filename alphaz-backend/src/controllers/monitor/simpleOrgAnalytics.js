@@ -1,4 +1,4 @@
-const { getLinkedInAccessToken } = require('./linkedinController');
+const { getLinkedInAccessToken } = require('../core/linkedinController');
 
 /**
  * Simple organization analytics focusing on available data

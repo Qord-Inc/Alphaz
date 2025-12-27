@@ -1,4 +1,4 @@
-const { getLinkedInAccessToken } = require('./linkedinController');
+const { getLinkedInAccessToken } = require('../core/linkedinController');
 
 /**
  * Get organization page statistics (lifetime or time-bound)

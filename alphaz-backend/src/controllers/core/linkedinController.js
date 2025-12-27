@@ -1,6 +1,6 @@
 const axios = require('axios');
-const linkedInConfig = require('../config/linkedin');
-const supabase = require('../config/supabase');
+const linkedInConfig = require('../../config/linkedin');
+const supabase = require('../../config/supabase');
 const jwt = require('jsonwebtoken');
 
 // Generate LinkedIn OAuth URL
