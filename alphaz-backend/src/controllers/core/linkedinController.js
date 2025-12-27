@@ -630,6 +630,79 @@ async function postOrganizationUpdate(req, res) {
   }
 }
 
+// Post content to LinkedIn as the user's personal profile
+async function postPersonalUpdate(req, res) {
+  try {
+    const { clerkUserId, content } = req.body || {};
+
+    if (!clerkUserId || !content) {
+      return res.status(400).json({ error: 'clerkUserId and content are required' });
+    }
+
+    // Get user data including linkedin_user_id
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('linkedin_access_token, linkedin_token_expires_at, linkedin_user_id')
+      .eq('clerk_user_id', clerkUserId)
+      .single();
+
+    if (userError || !user) {
+      return res.status(400).json({ error: 'User not found' });
+    }
+
+    if (!user.linkedin_access_token) {
+      return res.status(400).json({ error: 'LinkedIn not connected' });
+    }
+
+    if (!user.linkedin_user_id) {
+      return res.status(400).json({ error: 'LinkedIn user ID not found. Please reconnect your LinkedIn account.' });
+    }
+
+    // Check if token is expired
+    if (user.linkedin_token_expires_at && new Date(user.linkedin_token_expires_at) < new Date()) {
+      return res.status(400).json({ error: 'LinkedIn token expired. Please reconnect your LinkedIn account.' });
+    }
+
+    const authorUrn = `urn:li:person:${user.linkedin_user_id}`;
+
+    const payload = {
+      author: authorUrn,
+      lifecycleState: 'PUBLISHED',
+      specificContent: {
+        'com.linkedin.ugc.ShareContent': {
+          shareCommentary: { text: content },
+          shareMediaCategory: 'NONE'
+        }
+      },
+      visibility: {
+        'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC'
+      }
+    };
+
+    try {
+      const response = await axios.post('https://api.linkedin.com/v2/ugcPosts', payload, {
+        headers: {
+          Authorization: `Bearer ${user.linkedin_access_token}`,
+          'X-Restli-Protocol-Version': '2.0.0',
+          'LinkedIn-Version': '202511',
+          'Content-Type': 'application/json'
+        }
+      });
+
+      return res.status(200).json({ success: true, post: response.data });
+    } catch (postError) {
+      const raw = postError.response?.data;
+      const status = postError.response?.status || 500;
+      const friendlyMessage = raw?.message || raw?.messageText || postError.message || 'Failed to post to LinkedIn';
+      console.error('Error posting personal update to LinkedIn:', raw || postError.message);
+      return res.status(status).json({ error: friendlyMessage, details: raw || postError.message });
+    }
+  } catch (error) {
+    console.error('Error in postPersonalUpdate:', error);
+    res.status(500).json({ error: 'Internal server error', details: error.message });
+  }
+}
+
 // Refresh LinkedIn token (if needed)
 async function refreshLinkedInToken(req, res) {
   try {
@@ -739,6 +812,7 @@ module.exports = {
   getLinkedInStatus,
   getCompanyPages,
   postOrganizationUpdate,
+  postPersonalUpdate,
   refreshLinkedInToken,
   debugAcls,
   getLinkedInAccessToken

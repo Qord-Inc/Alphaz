@@ -422,18 +422,19 @@ export default function Create({ threadId }: CreatePageProps = {}) {
   } = useThreads({
     userId: clerkUser?.id,
     organizationId: selectedOrganization?.id,
-    enabled: !!selectedOrganization, // Only load threads when org is selected
+    enabled: !!clerkUser?.id, // Enable for both personal and org accounts
   });
 
   // Load thread from URL on initial mount
   useEffect(() => {
-    if (threadId && selectedOrganization && !isLoadingThreads) {
+    // Load thread for both personal and org accounts
+    if (threadId && clerkUser?.id && !isLoadingThreads) {
       // Only load if we don't already have this thread loaded
       if (currentThread?.id !== threadId) {
         selectThread(threadId);
       }
     }
-  }, [threadId, selectedOrganization, isLoadingThreads, currentThread?.id, selectThread]);
+  }, [threadId, clerkUser?.id, isLoadingThreads, currentThread?.id, selectThread]);
 
   // Helpers for CTA titles
   const genericTitles = useMemo(() => [
@@ -877,14 +878,10 @@ export default function Create({ threadId }: CreatePageProps = {}) {
   }, [removeThread, currentThread, clearChat]);
 
   /**
-   * Post the current draft to LinkedIn for the selected organization
+   * Post the current draft to LinkedIn for the selected organization or personal profile
    */
   const handlePostToLinkedIn = useCallback(async (content: string) => {
     if (!content) return;
-    if (!selectedOrganization) {
-      setPostStatus({ type: 'error', message: 'Select an organization to publish.' });
-      return;
-    }
     if (!user?.clerk_user_id) {
       setPostStatus({ type: 'error', message: 'User not loaded yet.' });
       return;
@@ -892,14 +889,20 @@ export default function Create({ threadId }: CreatePageProps = {}) {
 
     try {
       setIsPostingLinkedIn(true);
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/linkedin/post`, {
+      
+      // Determine endpoint and payload based on account type
+      const endpoint = isPersonalProfile 
+        ? `${process.env.NEXT_PUBLIC_API_URL}/api/linkedin/post/personal`
+        : `${process.env.NEXT_PUBLIC_API_URL}/api/linkedin/post`;
+      
+      const payload = isPersonalProfile
+        ? { clerkUserId: user.clerk_user_id, content }
+        : { clerkUserId: user.clerk_user_id, organizationId: selectedOrganization?.id, content };
+      
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          clerkUserId: user.clerk_user_id,
-          organizationId: selectedOrganization.id,
-          content,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -915,7 +918,7 @@ export default function Create({ threadId }: CreatePageProps = {}) {
     } finally {
       setIsPostingLinkedIn(false);
     }
-  }, [selectedOrganization, user?.clerk_user_id]);
+  }, [isPersonalProfile, selectedOrganization, user?.clerk_user_id]);
 
   // Ref to track the active thread ID for message persistence
   const activeThreadIdRef = useRef<string | null>(null);
@@ -935,7 +938,8 @@ export default function Create({ threadId }: CreatePageProps = {}) {
     let threadIdForMessage: string | null = activeThreadIdRef.current;
     
     // Create a new thread if this is the first message and we don't have one
-    if (messages.length === 0 && !currentThread && selectedOrganization) {
+    // Works for both personal accounts and org accounts
+    if (messages.length === 0 && !currentThread) {
       const threadTitle = messageToSend.substring(0, 50) + (messageToSend.length > 50 ? '...' : '');
       const thread = await newThread(threadTitle);
       if (thread) {
@@ -976,7 +980,7 @@ export default function Create({ threadId }: CreatePageProps = {}) {
     
     setInputValue(""); // Clear input immediately for better UX
     await sendMessage(messageToSend);
-  }, [inputValue, isLoading, sendMessage, messages.length, isDraftMode, messages, currentThread, selectedOrganization, newThread, appendMessage, drafts.length]);
+  }, [inputValue, isLoading, sendMessage, messages.length, isDraftMode, messages, currentThread, newThread, appendMessage, drafts.length]);
 
   /**
    * Handle keyboard shortcut (Enter to send) - memoized

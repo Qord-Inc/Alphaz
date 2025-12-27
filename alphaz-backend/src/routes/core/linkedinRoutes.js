@@ -20,6 +20,9 @@ router.get('/linkedin/company-pages/:clerkUserId', linkedinController.getCompany
 // Post to LinkedIn as an organization
 router.post('/linkedin/post', linkedinController.postOrganizationUpdate);
 
+// Post to LinkedIn as personal profile
+router.post('/linkedin/post/personal', linkedinController.postPersonalUpdate);
+
 // Debug ACLs - raw response from LinkedIn
 router.get('/linkedin/debug-acls/:clerkUserId', linkedinController.debugAcls);
 
