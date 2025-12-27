@@ -17,4 +17,10 @@ router.post('/tts', personaController.textToSpeech);
 // Save answer or skip for a question
 router.post('/answer', personaController.saveAnswer);
 
+// Get user context (creates if doesn't exist)
+router.get('/context/:clerkUserId', personaController.getUserContext);
+
+// Force refresh user context
+router.post('/context/refresh', personaController.refreshUserContext);
+
 module.exports = router;

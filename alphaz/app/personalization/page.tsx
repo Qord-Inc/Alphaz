@@ -127,15 +127,29 @@ function UserProfileTab() {
     }
   ]
 
-  // Load persona data
+  // Load persona data and check/create context
   useEffect(() => {
     if (!user?.clerk_user_id) return
 
     const loadPersonaData = async () => {
       try {
+        // Load persona status
         const resp = await fetch(`${API_BASE_URL}/api/persona/status/${user.clerk_user_id}`)
         const data = await resp.json()
         setPersonaData(data)
+
+        // Check/create user context (catch_all check)
+        // This will create context if it doesn't exist but persona data is available
+        fetch(`${API_BASE_URL}/api/persona/context/${user.clerk_user_id}`)
+          .then(res => res.json())
+          .then(contextData => {
+            if (contextData.justCreated) {
+              console.log('User context was just created from persona data')
+            }
+          })
+          .catch(err => {
+            console.error('Failed to check/create user context:', err)
+          })
       } catch (err) {
         console.error('Failed to load persona data:', err)
       } finally {
@@ -233,7 +247,7 @@ function UserProfileTab() {
                 : 'bg-orange-600 hover:bg-orange-700 shadow-orange-600/30'
             }`}
           >
-            {answeredCount === 8 ? 'Review Answers' : answeredCount > 0 ? 'Continue Interview' : "Let's Begin"}
+            {answeredCount === 8 ? 'View Profile Summary' : answeredCount > 0 ? 'Continue Interview' : "Let's Begin"}
             <svg className="ml-2 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
