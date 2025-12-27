@@ -325,7 +325,8 @@ export default function PersonaInterviewPage() {
     setQuestionQueue(prev => {
       const newQueue = prev.slice(1)
       if (newQueue.length === 0) {
-        setInterviewState('completed')
+        // Go back to ready state which will show profile summary if 6+ answers
+        setInterviewState('ready')
       } else {
         setInterviewState('idle')
       }
