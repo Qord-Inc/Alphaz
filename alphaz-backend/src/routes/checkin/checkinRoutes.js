@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getCheckinStatus, createRealtimeSession, completeCheckin } = require('../controllers/checkinController');
+const { getCheckinStatus, createRealtimeSession, completeCheckin } = require('../../controllers/checkin/checkinController');
 
 // Check if user can do check-in (not blocked by complete persona)
 router.get('/checkin/status/:clerkUserId', getCheckinStatus);

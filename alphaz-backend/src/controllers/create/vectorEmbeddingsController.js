@@ -1,5 +1,5 @@
 const { createClient } = require('@supabase/supabase-js');
-const { getLinkedInAccessToken } = require('./linkedinController');
+const { getLinkedInAccessToken } = require('../core/linkedinController');
 const OpenAI = require('openai');
 
 const supabase = createClient(

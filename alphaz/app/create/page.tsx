@@ -318,6 +318,10 @@ export default function Create({ threadId }: CreatePageProps = {}) {
   const { user } = useUser();
   const { user: clerkUser } = useClerkUser();
   
+  // Personal context for personal accounts
+  const [personalContext, setPersonalContext] = useState<any>(null);
+  const [isLoadingPersonalContext, setIsLoadingPersonalContext] = useState(false);
+  
   // UI state
   const [showThreadsPanel, setShowThreadsPanel] = useState(false);
   const [inputValue, setInputValue] = useState("");
@@ -349,6 +353,58 @@ export default function Create({ threadId }: CreatePageProps = {}) {
   
   // Track the last user edit prompt for draft versioning
   const lastEditPromptRef = useRef<string | null>(null);
+
+  // Fetch personal context for personal accounts
+  useEffect(() => {
+    if (isPersonalProfile && clerkUser?.id) {
+      setIsLoadingPersonalContext(true);
+      const fetchPersonalContext = async () => {
+        try {
+          console.log('🔍 Fetching personal context for user:', clerkUser.id);
+          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/persona/context/${clerkUser.id}`);
+          console.log('📥 Context fetch response status:', response.status);
+          
+          if (response.ok) {
+            const data = await response.json();
+            console.log('📦 Raw context data:', data);
+            
+            // API returns { exists: boolean, context: {...} }
+            const contextData = data.context;
+            
+            if (contextData) {
+              // Structure the context data for the chat API
+              const structuredContext = {
+                userProfileSummary: contextData.user_profile_summary,
+                contentProfileSummary: contextData.content_profile_summary,
+                audienceProfileSummary: contextData.audience_profile_summary,
+                brandVoiceSummary: contextData.brand_voice_summary,
+                goalsSummary: contextData.goals_summary,
+              };
+              console.log('✅ Structured context:', structuredContext);
+              setPersonalContext(structuredContext);
+            } else {
+              console.log('⚠️ No context data in response');
+              setPersonalContext({});
+            }
+          } else {
+            console.error('❌ Failed to fetch context, status:', response.status);
+            // Set empty context so we don't keep loading
+            setPersonalContext({});
+          }
+        } catch (error) {
+          console.error('❌ Failed to fetch personal context:', error);
+          // Set empty context so we don't keep loading
+          setPersonalContext({});
+        } finally {
+          setIsLoadingPersonalContext(false);
+        }
+      };
+      fetchPersonalContext();
+    } else {
+      console.log('⏭️ Skipping personal context fetch - isPersonalProfile:', isPersonalProfile, 'clerkUser:', !!clerkUser?.id);
+      setIsLoadingPersonalContext(false);
+    }
+  }, [isPersonalProfile, clerkUser?.id]);
 
   // Thread management - persist chats and drafts
   const {
@@ -621,16 +677,24 @@ export default function Create({ threadId }: CreatePageProps = {}) {
   }, [appendMessage]);
   
   // AI chat state
+  // For personal accounts: always pass context (empty object while loading, actual data when loaded)
+  // For org accounts: pass undefined to let hook fetch org context
+  const chatContextData = isPersonalProfile 
+    ? (personalContext || {}) // Pass context or empty object if still loading
+    : undefined; // org account, let hook fetch from embeddings API
+  
   const { messages, isLoading, error, currentIntent, sendMessage, clearChat, restoreMessages } = useAIChat({
     organizationId: selectedOrganization?.id || "",
     clerkUserId: clerkUser?.id || "",
+    contextData: chatContextData,
     onDraftStream: handleDraftStream,
     onDraftStreamComplete: handleDraftStreamComplete,
     onAIMessageComplete: handleAIMessageComplete,
   });
 
-  // Check if user is on personal profile (not organization)
-  const isBlocked = isPersonalProfile;
+  // Allow both personal and organization accounts to chat
+  // Backend will validate if personal account has completed personalization
+  const isBlocked = false;
   const isChatActive = messages.length > 0;
   const isDraftMode = currentIntent === 'draft' && isChatActive;
   // Show draft panel if we have drafts OR if AI is streaming draft content
@@ -1271,9 +1335,33 @@ export default function Create({ threadId }: CreatePageProps = {}) {
                     <div className="w-full flex justify-center">
                       <div className="max-w-4xl w-full px-6">
                         <div className="flex justify-start">
-                          <div className="bg-red-50 text-red-700 rounded-lg px-4 py-3 border border-red-200">
-                            <p className="text-sm">{error}</p>
-                          </div>
+                          {error === 'REQUIRES_PERSONALIZATION' ? (
+                            <div className="bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950/30 dark:to-emerald-950/30 border border-green-200 dark:border-green-800 rounded-xl px-6 py-4 max-w-md">
+                              <div className="flex items-start gap-3">
+                                <div className="w-10 h-10 bg-green-100 dark:bg-green-900/50 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
+                                  <Lock className="h-5 w-5 text-green-600 dark:text-green-400" />
+                                </div>
+                                <div className="flex-1">
+                                  <h3 className="text-sm font-semibold text-green-900 dark:text-green-100 mb-1">
+                                    Complete Your Personalization
+                                  </h3>
+                                  <p className="text-sm text-green-700 dark:text-green-300 mb-3">
+                                    To create personalized content, please complete your profile interview first.
+                                  </p>
+                                  <button
+                                    onClick={() => window.location.href = '/personalization/interview'}
+                                    className="text-sm font-medium text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 underline underline-offset-2"
+                                  >
+                                    Start Interview →
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="bg-red-50 text-red-700 rounded-lg px-4 py-3 border border-red-200">
+                              <p className="text-sm">{error}</p>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>

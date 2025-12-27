@@ -90,8 +90,15 @@ export function useAIChat({
       try {
         // Get context data (from props or fetch from database)
         console.log(`\n💬 [SEND MESSAGE] User message: "${userMessage.substring(0, 50)}..."`);
+        console.log(`   contextData prop:`, contextData);
+        console.log(`   contextData is truthy:`, !!contextData);
+        console.log(`   organizationId:`, organizationId);
 
-        const contextToSend = contextData || (await fetchContextData(organizationId, clerkUserId));
+        // For organization accounts: fetch context if not provided
+        // For personal accounts: use provided context (don't fetch)
+        const contextToSend = contextData !== undefined 
+          ? contextData 
+          : (organizationId ? await fetchContextData(organizationId, clerkUserId) : {});
 
         console.log(`\n🔧 [PREPARING REQUEST]`);
         console.log(`   Message count: ${messages.length + 1} (including new message)`);
@@ -142,6 +149,10 @@ export function useAIChat({
         // Handle API errors
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
+          // Check for personalization requirement error
+          if (errorData.error === 'NO_PERSONALIZATION' && errorData.requiresPersonalization) {
+            throw new Error('REQUIRES_PERSONALIZATION');
+          }
           throw new Error(errorData.error || `API error: ${response.status}`);
         }
 

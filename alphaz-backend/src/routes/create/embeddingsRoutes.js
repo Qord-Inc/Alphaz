@@ -3,7 +3,7 @@ const router = express.Router();
 const {
   generateOrganizationEmbeddings,
   getOrganizationContext
-} = require('../controllers/vectorEmbeddingsController');
+} = require('../../controllers/create/vectorEmbeddingsController');
 
 // Generate embeddings for an organization's analytics data
 router.post('/organization/:clerkUserId/:organizationId/generate', generateOrganizationEmbeddings);

@@ -3,16 +3,25 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 require('dotenv').config();
 
-// Import routes
-const userRoutes = require('./routes/userRoutes');
-const webhookRoutes = require('./routes/webhookRoutes');
-const linkedinRoutes = require('./routes/linkedinRoutes');
-const analyticsRoutes = require('./routes/analyticsRoutes');
-const organizationAnalyticsRoutes = require('./routes/organizationAnalyticsRoutes');
-const embeddingsRoutes = require('./routes/embeddingsRoutes');
-const threadsRoutes = require('./routes/threadsRoutes');
-const checkinRoutes = require('./routes/checkinRoutes');
-const personaRoutes = require('./routes/personaRoutes');
+// Import routes - organized by feature area
+// Core routes (authentication, webhooks, LinkedIn)
+const userRoutes = require('./routes/core/userRoutes');
+const webhookRoutes = require('./routes/core/webhookRoutes');
+const linkedinRoutes = require('./routes/core/linkedinRoutes');
+
+// Monitor routes (analytics, organization data)
+const analyticsRoutes = require('./routes/monitor/analyticsRoutes');
+const organizationAnalyticsRoutes = require('./routes/monitor/organizationAnalyticsRoutes');
+
+// Create routes (AI chat, embeddings)
+const embeddingsRoutes = require('./routes/create/embeddingsRoutes');
+const threadsRoutes = require('./routes/create/threadsRoutes');
+
+// Check-in routes
+const checkinRoutes = require('./routes/checkin/checkinRoutes');
+
+// Personalization routes (user persona, interview)
+const personaRoutes = require('./routes/personalization/personaRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;

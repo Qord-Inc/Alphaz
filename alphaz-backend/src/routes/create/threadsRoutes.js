@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const threadsController = require('../controllers/threadsController');
+const threadsController = require('../../controllers/create/threadsController');
 
 // Thread CRUD
 router.get('/threads', threadsController.listThreads);
