@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { AppLayout } from "@/components/app-layout"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -20,6 +20,8 @@ type InterviewState = 'ready' | 'idle' | 'loading' | 'ai-speaking' | 'listening'
 
 export default function PersonaInterviewPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const retakeQuestionId = searchParams.get('retake')
   const { user, loading: userLoading } = useUser()
   const [questions, setQuestions] = useState<Question[]>([])
   const [questionQueue, setQuestionQueue] = useState<number[]>([]) // Queue of question IDs to ask
@@ -30,6 +32,8 @@ export default function PersonaInterviewPage() {
   const [editingQuestionId, setEditingQuestionId] = useState<number | null>(null)
   const [editText, setEditText] = useState('')
   const [isSavingEdit, setIsSavingEdit] = useState(false)
+  const [userContext, setUserContext] = useState<any>(null)
+  const [loadingContext, setLoadingContext] = useState(false)
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
@@ -65,7 +69,7 @@ export default function PersonaInterviewPage() {
         // Load existing answers from user_profile
         const userProfile = data.persona?.user_profile || {}
         const loadedAnswers: Record<number, { question: string; category: string; answer: string }> = {}
-        const loadedSkipped: number[] = []
+        let loadedSkipped: number[] = []
         const answeredIds = new Set<number>()
         
         Object.entries(userProfile).forEach(([key, value]: [string, any]) => {
@@ -85,6 +89,13 @@ export default function PersonaInterviewPage() {
           }
         })
         
+        // If retaking a specific question, remove it from answers
+        if (retakeQuestionId) {
+          const retakeId = parseInt(retakeQuestionId)
+          delete loadedAnswers[retakeId]
+          loadedSkipped = loadedSkipped.filter((id: number) => id !== retakeId)
+        }
+
         setUserAnswers(loadedAnswers)
         setSkippedQuestions(new Set(loadedSkipped))
         
@@ -94,9 +105,22 @@ export default function PersonaInterviewPage() {
           !answeredIds.has(id) && !loadedSkipped.includes(id)
         )
         
-        // Priority: skipped first (sorted by id), then unanswered (sorted by id)
-        const queue = [...loadedSkipped.sort((a, b) => a - b), ...unansweredIds]
+        // If retaking a question, put it at the front of the queue
+        let queue: number[]
+        if (retakeQuestionId) {
+          const retakeId = parseInt(retakeQuestionId)
+          queue = [retakeId, ...loadedSkipped.filter((id: number) => id !== retakeId).sort((a, b) => a - b), ...unansweredIds.filter((id: number) => id !== retakeId)]
+        } else {
+          // Priority: skipped first (sorted by id), then unanswered (sorted by id)
+          queue = [...loadedSkipped.sort((a, b) => a - b), ...unansweredIds]
+        }
+        
         setQuestionQueue(queue)
+        
+        // If retaking, auto-start the interview
+        if (retakeQuestionId && queue.length > 0) {
+          setInterviewState('idle')
+        }
         
       } catch (err) {
         console.error('Failed to load questions:', err)
@@ -104,7 +128,29 @@ export default function PersonaInterviewPage() {
     }
 
     loadQuestions()
-  }, [clerkUserId])
+  }, [clerkUserId, retakeQuestionId])
+
+  // Fetch user context when we have 6+ answered questions
+  useEffect(() => {
+    if (!clerkUserId || answeredCount < 6) return
+
+    const fetchContext = async () => {
+      try {
+        setLoadingContext(true)
+        const resp = await fetch(`${API_BASE_URL}/api/persona/context/${clerkUserId}`)
+        const data = await resp.json()
+        if (data.exists && data.context?.user_profile_summary) {
+          setUserContext(data.context.user_profile_summary)
+        }
+      } catch (err) {
+        console.error('Failed to fetch user context:', err)
+      } finally {
+        setLoadingContext(false)
+      }
+    }
+
+    fetchContext()
+  }, [clerkUserId, answeredCount])
 
   // Play AI question when question changes (only after interview started)
   useEffect(() => {
@@ -359,12 +405,38 @@ export default function PersonaInterviewPage() {
 
       setEditingQuestionId(null)
       setEditText('')
+
+      // Refresh context after editing (if we have 6+ answers)
+      if (answeredCount >= 6) {
+        fetch(`${API_BASE_URL}/api/persona/context/${clerkUserId}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.exists && data.context?.user_profile_summary) {
+              setUserContext(data.context.user_profile_summary)
+            }
+          })
+          .catch(err => console.error('Failed to refresh context:', err))
+      }
     } catch (err: any) {
       console.error('Failed to save edit:', err)
       alert(`Error: ${err.message}`)
     } finally {
       setIsSavingEdit(false)
     }
+  }
+
+  const retakeQuestion = (questionId: number) => {
+    // Remove the answer from local state
+    setUserAnswers(prev => {
+      const newAnswers = { ...prev }
+      delete newAnswers[questionId]
+      return newAnswers
+    })
+    
+    // Add to beginning of question queue and start interview
+    setQuestionQueue(prev => [questionId, ...prev.filter(id => id !== questionId)])
+    setInterviewState('idle')
+    playedQuestionIdRef.current = -1 // Reset to allow playing this question
   }
 
   // Start the interview (user clicks button, unlocking audio autoplay)
@@ -385,10 +457,234 @@ export default function PersonaInterviewPage() {
   // Ready screen - user must click to start (unlocks audio autoplay)
   if (interviewState === 'ready') {
     const allAnswered = questionQueue.length === 0 && answeredCount > 0
+    const showSummary = answeredCount >= 6 && userContext
     
+    // If we have 6+ answers and summary, show summary page with retake interview button
+    if (showSummary) {
+      return (
+        <AppLayout>
+          <div className="flex-1 overflow-auto bg-gradient-to-b from-green-50 via-white to-white dark:from-background dark:via-background dark:to-background">
+            <div className="max-w-4xl mx-auto py-8 px-4">
+              {/* Header with completion message */}
+              <div className="mb-8 text-center bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-800 rounded-xl p-6">
+                <div className="flex items-center justify-center gap-3 mb-3">
+                  <div className="h-12 w-12 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                    <CheckCircle2 className="h-7 w-7 text-green-600 dark:text-green-400" />
+                  </div>
+                </div>
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                  Interview Complete!
+                </h2>
+                <p className="text-gray-700 dark:text-gray-300 mb-1">
+                  Thank you for sharing. Alphaz has generated your
+                </p>
+                <p className="text-gray-700 dark:text-gray-300">
+                  personalized profile based on our conversation.
+                </p>
+              </div>
+
+              {/* Profile Summary Card */}
+              <Card className="p-8 space-y-6 bg-white dark:bg-gray-900">
+                <div className="flex items-center gap-3 pb-4 border-b border-gray-200 dark:border-gray-700">
+                  <div className="h-12 w-12 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center flex-shrink-0">
+                    <svg className="h-7 w-7 text-orange-600 dark:text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900 dark:text-white">Your Profile Summary</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Generated by Alphaz</p>
+                  </div>
+                </div>
+
+                {/* Summary Content */}
+                <div className="space-y-6 bg-gray-50 dark:bg-gray-800/50 rounded-xl p-6">
+                  {/* Main Summary Text */}
+                  {userContext.raw_summary && (
+                    <div className="space-y-2">
+                      <p className="text-base text-gray-800 dark:text-gray-200 leading-relaxed">
+                        {userContext.raw_summary}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Additional context paragraphs */}
+                  {userContext.professional_background && (
+                    <div className="space-y-2">
+                      <p className="text-base text-gray-800 dark:text-gray-200 leading-relaxed">
+                        {userContext.professional_background}
+                      </p>
+                    </div>
+                  )}
+
+                  {userContext.communication_style && (
+                    <div className="space-y-2">
+                      <p className="text-base text-gray-800 dark:text-gray-200 leading-relaxed">
+                        {userContext.communication_style}
+                      </p>
+                    </div>
+                  )}
+
+                  {userContext.goals_and_impact && (
+                    <div className="space-y-2">
+                      <p className="text-base text-gray-800 dark:text-gray-200 leading-relaxed">
+                        {userContext.goals_and_impact}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Tags Section */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Personality Traits */}
+                  {userContext.personality_traits && userContext.personality_traits.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Personality Traits</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {userContext.personality_traits.map((trait: string, idx: number) => (
+                          <span
+                            key={idx}
+                            className="px-3 py-1.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-sm font-medium rounded-full"
+                          >
+                            {trait}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Core Passions */}
+                  {userContext.content_themes && userContext.content_themes.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Core Passions</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {userContext.content_themes.map((theme: string, idx: number) => (
+                          <span
+                            key={idx}
+                            className="px-3 py-1.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-sm font-medium rounded-full"
+                          >
+                            {theme}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Core Values - Full Width */}
+                {userContext.core_values && userContext.core_values.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Core Values</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {userContext.core_values.map((value: string, idx: number) => (
+                        <span
+                          key={idx}
+                          className="px-3 py-1.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-sm font-medium rounded-full"
+                        >
+                          {value}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Interests & Passions */}
+                {userContext.interests_and_passions && userContext.interests_and_passions.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Interests & Passions</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {userContext.interests_and_passions.map((interest: string, idx: number) => (
+                        <span
+                          key={idx}
+                          className="px-3 py-1.5 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 text-sm font-medium rounded-full"
+                        >
+                          {interest}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Key Differentiators */}
+                {userContext.key_differentiators && userContext.key_differentiators.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Key Differentiators</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {userContext.key_differentiators.map((diff: string, idx: number) => (
+                        <span
+                          key={idx}
+                          className="px-3 py-1.5 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 text-sm font-medium rounded-full"
+                        >
+                          {diff}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Unique Perspective */}
+                {userContext.unique_perspective && (
+                  <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
+                    <h4 className="text-sm font-semibold text-amber-900 dark:text-amber-100 mb-2">Unique Perspective</h4>
+                    <p className="text-sm text-amber-800 dark:text-amber-200">
+                      {userContext.unique_perspective}
+                    </p>
+                  </div>
+                )}
+
+                {/* Success message */}
+                <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+                  <div className="flex gap-3">
+                    <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-semibold text-green-900 dark:text-green-100 mb-1">
+                        Profile Updated Successfully
+                      </p>
+                      <p className="text-sm text-green-800 dark:text-green-200">
+                        Alphaz will now use this information to create personalized content that authentically represents your voice and perspective.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+              </Card>
+
+              {/* Add spacing for floating buttons */}
+              <div className="h-24"></div>
+            </div>
+
+            {/* Floating Action Buttons at Bottom - accounting for sidebar */}
+            <div className="fixed bottom-6 left-1/2 -translate-x-1/2 lg:left-[calc(50%+100px)] lg:-translate-x-1/2 z-50">
+              <div className="flex gap-3 bg-white dark:bg-gray-900 rounded-full shadow-2xl border border-gray-200 dark:border-gray-700 p-2">
+                <Button
+                  onClick={() => router.push('/personalization/interview/edit')}
+                  variant="outline"
+                  className="rounded-full border-2 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 px-6"
+                  size="lg"
+                >
+                  <svg className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Retake Interview
+                </Button>
+                <Button
+                  onClick={() => router.push('/personalization')}
+                  className="rounded-full bg-orange-600 hover:bg-orange-700 text-white px-6"
+                  size="lg"
+                >
+                  Done
+                </Button>
+              </div>
+            </div>
+          </div>
+        </AppLayout>
+      )
+    }
+    
+    // Default ready screen (for <6 answers)
     return (
       <AppLayout>
-        <div className="flex-1 overflow-auto p-4 bg-gradient-to-b from-blue-50 to-white dark:from-background dark:to-background">
+        <div className="flex-1 overflow-auto p-4 bg-gradient-to-b from-blue-50 to-white dark:from-background dark:via-background dark:to-background">
           <div className="max-w-2xl mx-auto space-y-6 py-8">
             <Card className="p-8 text-center space-y-6">
               <div className={`h-20 w-20 mx-auto rounded-full flex items-center justify-center ${
@@ -408,7 +704,7 @@ export default function PersonaInterviewPage() {
                 </h2>
                 {allAnswered ? (
                   <p className="text-gray-600 dark:text-gray-400 mb-4">
-                    You've answered all {answeredCount} questions. Alphaz now understands you better!
+                    You've answered all {answeredCount} questions. Generating your profile summary...
                   </p>
                 ) : (
                   <>
@@ -442,18 +738,16 @@ export default function PersonaInterviewPage() {
                 </Button>
               )}
               
-              {allAnswered && (
-                <Button
-                  onClick={() => router.push('/personalization')}
-                  className="bg-orange-600 hover:bg-orange-700"
-                >
-                  Back to Personalization
-                </Button>
+              {allAnswered && loadingContext && (
+                <div className="flex items-center justify-center gap-2 text-orange-600">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  <span className="text-sm">Generating your profile...</span>
+                </div>
               )}
             </Card>
 
-            {/* Show answered questions */}
-            {answeredCount > 0 && (
+            {/* Show answered questions (for <6 answers) */}
+            {answeredCount > 0 && answeredCount < 6 && (
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
                   <CheckCircle2 className="h-5 w-5 text-emerald-500" />
@@ -571,7 +865,7 @@ export default function PersonaInterviewPage() {
   if (interviewState === 'completed') {
     return (
       <AppLayout>
-        <div className="flex-1 overflow-auto p-4 bg-gradient-to-b from-emerald-50 to-white dark:from-background dark:to-background">
+        <div className="flex-1 overflow-auto p-4 bg-gradient-to-b from-emerald-50 to-white dark:from-background dark:via-background dark:to-background">
           <div className="max-w-2xl mx-auto space-y-6 py-8">
             <Card className="p-8 text-center space-y-6">
               <div className="h-20 w-20 mx-auto rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
@@ -705,7 +999,7 @@ export default function PersonaInterviewPage() {
 
   return (
     <AppLayout>
-      <div className="flex-1 overflow-auto bg-gradient-to-b from-blue-50 to-white dark:from-background dark:to-background">
+      <div className="flex-1 overflow-auto bg-gradient-to-b from-blue-50 to-white dark:from-background dark:via-background dark:to-background">
         <div className="max-w-4xl mx-auto py-8 px-4">
           {/* Progress Stats */}
           <div className="mb-8">
