@@ -33,7 +33,8 @@ const EditResponseSchema = z.object({
 async function detectIntent(userMessage: string): Promise<string> {
   try {
     const result = await generateObject({
-      model: openai('gpt-4.1-nano'), // Fast, cheap for classification
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      model: openai('gpt-4.1-nano') as any, // Fast, cheap for classification. Type cast needed due to SDK version mismatch
       schema: IntentSchema,
       prompt: `Classify the user's intent in one word. User message: "${userMessage}"`,
       temperature: 0.1, // Low temperature for consistent classification
