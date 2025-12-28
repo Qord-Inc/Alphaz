@@ -13,9 +13,10 @@ const linkedinRoutes = require('./routes/core/linkedinRoutes');
 const analyticsRoutes = require('./routes/monitor/analyticsRoutes');
 const organizationAnalyticsRoutes = require('./routes/monitor/organizationAnalyticsRoutes');
 
-// Create routes (AI chat, embeddings)
+// Create routes (AI chat, embeddings, feedback)
 const embeddingsRoutes = require('./routes/create/embeddingsRoutes');
 const threadsRoutes = require('./routes/create/threadsRoutes');
+const feedbackRoutes = require('./routes/create/feedbackRoutes');
 
 // Check-in routes
 const checkinRoutes = require('./routes/checkin/checkinRoutes');
@@ -47,6 +48,7 @@ app.use('/api', analyticsRoutes);
 app.use('/api/analytics', organizationAnalyticsRoutes);
 app.use('/api/embeddings', embeddingsRoutes);
 app.use('/api', threadsRoutes);
+app.use('/api', feedbackRoutes);
 app.use('/api', checkinRoutes);
 app.use('/api/persona', personaRoutes);
 

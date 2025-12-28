@@ -14,14 +14,15 @@ import { DraftPanel, Draft } from "@/components/draft-panel";
 import { UploadedImage } from "@/components/linkedin-post-preview";
 import { ThreadsPanel } from "@/components/threads-panel";
 import { useThreads } from "@/hooks/useThreads";
-import { saveDraft as saveDraftToApi, updateDraftVersion as updateDraftVersionApi } from "@/lib/threadsApi";
+import { MessageFeedback } from "@/components/message-feedback";
+import { saveDraft as saveDraftToApi, updateDraftVersion as updateDraftVersionApi, updateDraftVersionParentMessage } from "@/lib/threadsApi";
 import { 
   Paperclip, 
   Mic, 
   BarChart3, 
   Send, 
   Menu, 
-  Plus, 
+  SquarePen, 
   MessageSquare,
   X,
   Building2,
@@ -33,6 +34,9 @@ import {
   Loader as LoaderIcon
 } from "lucide-react";
 
+// Feedback map type
+type FeedbackMap = Record<string, { type: 'up' | 'down'; text?: string }>;
+
 /**
  * Memoized single message component to prevent re-renders
  */
@@ -41,6 +45,11 @@ const ChatMessage = memo(({
   onViewDraft,
   selectedDraftId,
   selectedDraftVersion,
+  threadId,
+  userId,
+  feedback,
+  onFeedbackSaved,
+  dbMessageId,
 }: { 
   message: { 
     id: string; 
@@ -57,6 +66,11 @@ const ChatMessage = memo(({
   onViewDraft?: (draftId: string, version?: number) => void;
   selectedDraftId?: string | null;
   selectedDraftVersion?: number | null;
+  threadId?: string | null;
+  userId?: string | null;
+  feedback?: { type: 'up' | 'down'; text?: string } | null;
+  onFeedbackSaved?: (messageId: string, type: 'up' | 'down', text?: string) => void;
+  dbMessageId?: string; // Database message ID (different from client ID)
 }) => {
   // Format timestamp as exact time (e.g., "2:34 PM")
   const formatTime = (date?: Date) => {
@@ -207,7 +221,7 @@ const ChatMessage = memo(({
               
               {/* Message actions for regular assistant messages */}
               {message.role === "assistant" && (
-                <div className="flex gap-2 mt-3 pt-2 border-t border-border">
+                <div className="flex items-start justify-between gap-4 mt-3 pt-2 border-t border-border">
                   <button
                     onClick={handleCopy}
                     className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
@@ -216,6 +230,17 @@ const ChatMessage = memo(({
                     <Copy className="h-3 w-3" />
                     Copy
                   </button>
+                  
+                  {/* Feedback thumbs - use dbMessageId when available (client ID won't work until refreshed) */}
+                  {threadId && userId && (dbMessageId || message.id) && (
+                    <MessageFeedback
+                      messageId={dbMessageId || message.id}
+                      threadId={threadId}
+                      userId={userId}
+                      existingFeedback={feedback}
+                      onFeedbackSaved={onFeedbackSaved}
+                    />
+                  )}
                 </div>
               )}
             </div>
@@ -289,11 +314,21 @@ const MessageList = memo(({
   onViewDraft,
   selectedDraftId,
   selectedDraftVersion,
+  threadId,
+  userId,
+  feedbackMap,
+  onFeedbackSaved,
+  clientToDbMessageIdMap,
 }: { 
   messages: any[]; 
   onViewDraft: (draftId: string, version?: number) => void;
   selectedDraftId?: string | null;
   selectedDraftVersion?: number | null;
+  threadId?: string | null;
+  userId?: string | null;
+  feedbackMap?: FeedbackMap;
+  onFeedbackSaved?: (messageId: string, type: 'up' | 'down', text?: string) => void;
+  clientToDbMessageIdMap?: Record<string, string>;
 }) => {
   // Group messages by date
   const messageGroups = useMemo(() => {
@@ -327,15 +362,27 @@ const MessageList = memo(({
           
           {/* Messages for this date */}
           <div className="space-y-4">
-            {group.messages.map((message) => (
-              <ChatMessage 
-                key={message.id}
-                message={message} 
-                onViewDraft={onViewDraft}
-                selectedDraftId={selectedDraftId}
-                selectedDraftVersion={selectedDraftVersion}
-              />
-            ))}
+            {group.messages.map((message) => {
+              // Get DB message ID if available (for new messages created in this session)
+              const dbMsgId = clientToDbMessageIdMap?.[message.id];
+              // Use DB ID for feedback lookup, fallback to message.id (which is DB ID for restored messages)
+              const feedbackKey = dbMsgId || message.id;
+              
+              return (
+                <ChatMessage 
+                  key={message.id}
+                  message={message} 
+                  onViewDraft={onViewDraft}
+                  selectedDraftId={selectedDraftId}
+                  selectedDraftVersion={selectedDraftVersion}
+                  threadId={threadId}
+                  userId={userId}
+                  feedback={feedbackMap?.[feedbackKey]}
+                  onFeedbackSaved={onFeedbackSaved}
+                  dbMessageId={dbMsgId}
+                />
+              );
+            })}
           </div>
         </div>
       ))}
@@ -382,11 +429,22 @@ export default function Create({ threadId }: CreatePageProps = {}) {
   
   // Direct edit state
   const [isSavingDirectEdit, setIsSavingDirectEdit] = useState(false);
+  
+  // Message feedback state
+  const [feedbackMap, setFeedbackMap] = useState<FeedbackMap>({});
   const inputRefCentered = useRef<HTMLTextAreaElement | null>(null);
   const inputRefFloating = useRef<HTMLTextAreaElement | null>(null);
   
   // Map message IDs to draft metadata
   const messageDraftMap = useRef<Map<string, { draftId: string; version: number; intent: string }>>(new Map());
+  
+  // Map client message IDs to DB message IDs (for linking drafts to persisted messages)
+  // Using state so React re-renders when mappings are added
+  const [clientToDbMessageIdMap, setClientToDbMessageIdMap] = useState<Record<string, string>>({});
+  
+  // Pending parent message updates (waiting for dbDraftId to be available)
+  // Key: local draft ID, Value: { parentMessageId, version }
+  const pendingParentMessageUpdates = useRef<Map<string, { parentMessageId: string; version: number }>>(new Map());
   
   // Track if we've already restored the current thread (prevent re-restore during active session)
   const lastRestoredThreadId = useRef<string | null>(null);
@@ -629,6 +687,18 @@ export default function Create({ threadId }: CreatePageProps = {}) {
                 ? { ...d, dbId: savedDraft.id } 
                 : d
             ));
+            
+            // Process pending parent message update if any
+            const pendingUpdate = pendingParentMessageUpdates.current.get(newDraft.id);
+            if (pendingUpdate) {
+              console.log('🔄 Processing pending parent message update for draft:', newDraft.id);
+              updateDraftVersionParentMessage(savedDraft.id, pendingUpdate.parentMessageId, pendingUpdate.version)
+                .then(() => {
+                  console.log('✅ Updated draft parentMessageId in DB:', savedDraft.id);
+                  pendingParentMessageUpdates.current.delete(newDraft.id);
+                })
+                .catch(err => console.error('Failed to update draft parentMessageId in DB:', err));
+            }
           })
           .catch(err => {
             console.error('Failed to persist draft:', err);
@@ -676,6 +746,9 @@ export default function Create({ threadId }: CreatePageProps = {}) {
         if (threadId) {
           // Use dbId if available, otherwise the local id won't match DB
           const dbDraftId = (targetDraft as any).dbId;
+          const newVersion = updatedDraft.currentVersion;
+          const localDraftId = updatedDraft.id;
+          
           saveDraftToApi(threadId, extractedContent, {
             draftId: dbDraftId,
             title: targetDraft.title,
@@ -684,6 +757,18 @@ export default function Create({ threadId }: CreatePageProps = {}) {
           })
             .then(savedDraft => {
               console.log('✅ Draft version persisted to DB:', savedDraft.id, 'v' + savedDraft.current_version);
+              
+              // Process pending parent message update if any
+              const pendingUpdate = pendingParentMessageUpdates.current.get(localDraftId);
+              if (pendingUpdate && pendingUpdate.version === newVersion) {
+                console.log('🔄 Processing pending parent message update for edit version:', localDraftId);
+                updateDraftVersionParentMessage(savedDraft.id, pendingUpdate.parentMessageId, newVersion)
+                  .then(() => {
+                    console.log('✅ Updated edit version parentMessageId in DB:', savedDraft.id);
+                    pendingParentMessageUpdates.current.delete(localDraftId);
+                  })
+                  .catch(err => console.error('Failed to update edit version parentMessageId in DB:', err));
+              }
             })
             .catch(err => {
               console.error('Failed to persist draft version:', err);
@@ -707,14 +792,41 @@ export default function Create({ threadId }: CreatePageProps = {}) {
   /**
    * Handle AI message completion - persist to database
    */
-  const handleAIMessageComplete = useCallback((content: string, intent: string | null, messageId: string) => {
+  const handleAIMessageComplete = useCallback(async (content: string, intent: string | null, messageId: string) => {
     const threadId = activeThreadIdRef.current;
     if (!threadId || !content.trim()) return;
     
-    // Persist AI response to the thread
-    appendMessage('assistant', content, intent || undefined, threadId).catch(err => 
-      console.error('Failed to persist AI message:', err)
-    );
+    try {
+      // Persist AI response to the thread
+      const savedMessage = await appendMessage('assistant', content, intent || undefined, threadId);
+      
+      if (savedMessage?.id) {
+        // Store mapping of client ID to DB ID (using state so React re-renders)
+        setClientToDbMessageIdMap(prev => ({ ...prev, [messageId]: savedMessage.id }));
+        console.log('📝 Mapped client message ID to DB ID:', messageId, '→', savedMessage.id);
+        
+        // If this message has a draft associated, update the draft's parentMessageId
+        const draftInfo = messageDraftMap.current.get(messageId);
+        if (draftInfo && (intent === 'draft' || intent === 'edit')) {
+          // Update local state
+          setDrafts(prev => prev.map(d => 
+            d.id === draftInfo.draftId
+              ? { ...d, parentMessageId: savedMessage.id }
+              : d
+          ));
+          console.log('✅ Updated draft parentMessageId in state:', draftInfo.draftId, '→', savedMessage.id);
+          
+          // Store pending update - will be processed when dbDraftId becomes available
+          pendingParentMessageUpdates.current.set(draftInfo.draftId, {
+            parentMessageId: savedMessage.id,
+            version: draftInfo.version
+          });
+          console.log('📋 Queued pending parent message update for draft:', draftInfo.draftId);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to persist AI message:', err);
+    }
   }, [appendMessage]);
   
   // AI chat state
@@ -1007,6 +1119,39 @@ export default function Create({ threadId }: CreatePageProps = {}) {
     activeThreadIdRef.current = currentThread?.id || null;
   }, [currentThread]);
 
+  // Fetch feedback for current thread when it changes
+  useEffect(() => {
+    const fetchFeedback = async () => {
+      if (!currentThread?.id || !clerkUser?.id) {
+        setFeedbackMap({});
+        return;
+      }
+
+      try {
+        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+        const response = await fetch(
+          `${API_URL}/api/feedback/thread/${currentThread.id}?userId=${clerkUser.id}`
+        );
+        if (response.ok) {
+          const data = await response.json();
+          setFeedbackMap(data.feedback || {});
+        }
+      } catch (err) {
+        console.error('Failed to fetch feedback:', err);
+      }
+    };
+
+    fetchFeedback();
+  }, [currentThread?.id, clerkUser?.id]);
+
+  // Callback to update local feedback state after saving
+  const handleFeedbackSaved = useCallback((messageId: string, type: 'up' | 'down', text?: string) => {
+    setFeedbackMap(prev => ({
+      ...prev,
+      [messageId]: { type, text }
+    }));
+  }, []);
+
   /**
    * Handle sending a message (memoized to prevent re-creation)
    */
@@ -1182,6 +1327,7 @@ export default function Create({ threadId }: CreatePageProps = {}) {
             editPrompt: v.edit_prompt,
             changes: v.changes || [],
             timestamp: new Date(v.created_at),
+            parent_message_id: v.parent_message_id, // Include parent message ID for feedback
           })),
           timestamp: new Date(d.created_at),
         };
@@ -1291,10 +1437,10 @@ export default function Create({ threadId }: CreatePageProps = {}) {
               <Button 
                 variant="ghost" 
                 size="icon"
-                onClick={clearChat}
+                onClick={handleNewThread}
                 title="New Chat"
               >
-                <Plus className="h-5 w-5" />
+                <SquarePen className="h-5 w-5" />
               </Button>
             </div>
           </div>
@@ -1395,6 +1541,11 @@ export default function Create({ threadId }: CreatePageProps = {}) {
                       onViewDraft={handleViewDraft}
                       selectedDraftId={selectedDraftId}
                       selectedDraftVersion={selectedDraftVersion}
+                      threadId={currentThread?.id}
+                      userId={clerkUser?.id}
+                      feedbackMap={feedbackMap}
+                      onFeedbackSaved={handleFeedbackSaved}
+                      clientToDbMessageIdMap={clientToDbMessageIdMap}
                     />
 
                   {/* Loading indicator - only show when NOT streaming to draft panel */}
@@ -1480,6 +1631,10 @@ export default function Create({ threadId }: CreatePageProps = {}) {
                       onContentEdit={handleDirectContentEdit}
                       isSavingEdit={isSavingDirectEdit}
                       enableImageUpload={true}
+                      threadId={currentThread?.id}
+                      userId={clerkUser?.id}
+                      feedbackMap={feedbackMap}
+                      onFeedbackSaved={handleFeedbackSaved}
                     />
                   )}
                 </div>
