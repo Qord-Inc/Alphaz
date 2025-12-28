@@ -290,7 +290,7 @@ async function addMessage(req, res) {
 async function saveDraft(req, res) {
   try {
     const { id } = req.params; // thread id
-    const { draftId, title, content, editPrompt, changes } = req.body;
+    const { draftId, title, content, editPrompt, changes, parentMessageId } = req.body;
 
     if (!content) {
       return res.status(400).json({ error: 'content is required' });
@@ -320,7 +320,8 @@ async function saveDraft(req, res) {
           version: newVersion,
           content,
           edit_prompt: editPrompt || null,
-          changes: changes || null
+          changes: changes || null,
+          parent_message_id: parentMessageId || null
         });
 
       if (versionError) {
@@ -367,7 +368,8 @@ async function saveDraft(req, res) {
           version: 1,
           content,
           edit_prompt: editPrompt || null,
-          changes: changes || null
+          changes: changes || null,
+          parent_message_id: parentMessageId || null
         });
 
       if (versionError) {
@@ -522,6 +524,51 @@ async function updateDraftVersion(req, res) {
   }
 }
 
+// =====================================================
+// Update draft version's parent message ID
+// Called after AI message is persisted to DB
+// =====================================================
+async function updateDraftVersionParentMessage(req, res) {
+  try {
+    const { draftId } = req.params;
+    const { version, parentMessageId } = req.body;
+
+    if (!parentMessageId) {
+      return res.status(400).json({ error: 'parentMessageId is required' });
+    }
+
+    // Get the draft to find the current version if not specified
+    const { data: draft, error: draftError } = await supabase
+      .from('chat_thread_drafts')
+      .select('id, current_version')
+      .eq('id', draftId)
+      .single();
+
+    if (draftError || !draft) {
+      return res.status(404).json({ error: 'Draft not found' });
+    }
+
+    const targetVersion = version || draft.current_version;
+
+    // Update the version's parent_message_id
+    const { error: updateError } = await supabase
+      .from('chat_thread_draft_versions')
+      .update({ parent_message_id: parentMessageId })
+      .eq('draft_id', draftId)
+      .eq('version', targetVersion);
+
+    if (updateError) {
+      console.error('Error updating draft version parent message:', updateError);
+      return res.status(500).json({ error: 'Failed to update draft version' });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error in updateDraftVersionParentMessage:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
 module.exports = {
   listThreads,
   createThread,
@@ -532,5 +579,6 @@ module.exports = {
   saveDraft,
   getDraft,
   deleteDraft,
-  updateDraftVersion
+  updateDraftVersion,
+  updateDraftVersionParentMessage
 };

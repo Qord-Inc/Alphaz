@@ -21,6 +21,7 @@ export interface DraftVersion {
   content: string;
   edit_prompt?: string;
   changes?: string[];
+  parent_message_id?: string;
   created_at: string;
 }
 
@@ -155,6 +156,7 @@ export async function saveDraft(
     title?: string;
     editPrompt?: string;
     changes?: string[];
+    parentMessageId?: string;
   }
 ): Promise<ThreadDraft> {
   const res = await fetch(`${API_URL}/api/threads/${threadId}/drafts`, {
@@ -166,6 +168,7 @@ export async function saveDraft(
       content,
       editPrompt: options?.editPrompt,
       changes: options?.changes,
+      parentMessageId: options?.parentMessageId,
     }),
   });
   const data = await res.json();
@@ -206,4 +209,24 @@ export async function updateDraftVersion(
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Failed to update draft version');
   return data.draft;
+}
+
+/**
+ * Update draft version's parent message ID
+ * Called after AI message is persisted to DB to link the draft version to its source message
+ */
+export async function updateDraftVersionParentMessage(
+  draftId: string,
+  parentMessageId: string,
+  version?: number
+): Promise<void> {
+  const res = await fetch(`${API_URL}/api/drafts/${draftId}/parent-message`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ parentMessageId, version }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to update draft version parent message');
+  }
 }

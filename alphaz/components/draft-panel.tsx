@@ -2,6 +2,7 @@
 
 import { useState, memo, useCallback, useEffect } from 'react';
 import { LinkedInPostPreview, UploadedImage } from './linkedin-post-preview';
+import { MessageFeedback } from './message-feedback';
 import { ChevronLeft, ChevronRight, FileText, Trash2, Copy, Check, Loader2, Share2, X, Save } from 'lucide-react';
 
 export interface DraftVersion {
@@ -10,6 +11,7 @@ export interface DraftVersion {
   timestamp: Date;
   changes?: string[];
   editPrompt?: string;
+  parent_message_id?: string;
 }
 
 export interface Draft {
@@ -52,6 +54,14 @@ interface DraftPanelProps {
   isSavingEdit?: boolean;
   /** Enable image upload feature */
   enableImageUpload?: boolean;
+  /** Thread ID for feedback */
+  threadId?: string | null;
+  /** User ID for feedback */
+  userId?: string | null;
+  /** Feedback map keyed by message ID */
+  feedbackMap?: Record<string, { type: 'up' | 'down'; text?: string }>;
+  /** Callback when feedback is saved */
+  onFeedbackSaved?: (messageId: string, type: 'up' | 'down', text?: string) => void;
 }
 
 export const DraftPanel = memo(({ 
@@ -74,6 +84,10 @@ export const DraftPanel = memo(({
   onContentEdit,
   isSavingEdit,
   enableImageUpload = false,
+  threadId,
+  userId,
+  feedbackMap,
+  onFeedbackSaved,
 }: DraftPanelProps) => {
   const [selectedDraftIndex, setSelectedDraftIndex] = useState(drafts.length - 1);
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null); // null means current version
@@ -429,6 +443,30 @@ export const DraftPanel = memo(({
                   uploadedImages={currentDraftImages}
                   onImagesChange={handleImagesChange}
                 />
+
+                {/* Draft Feedback - Rate this AI generation */}
+                {(() => {
+                  // Get parent_message_id from current version, fallback to draft's parentMessageId
+                  const currentVersion = selectedDraft.versions.find(v => v.version === (selectedVersion || selectedDraft.currentVersion));
+                  const parentMsgId = currentVersion?.parent_message_id || selectedDraft.parentMessageId;
+                  
+                  if (!parentMsgId || !threadId || !userId) return null;
+                  
+                  return (
+                    <div className="mt-4 p-3 bg-muted/50 rounded-lg border border-border">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">Rate this draft</span>
+                        <MessageFeedback
+                          messageId={parentMsgId}
+                          threadId={threadId}
+                          userId={userId}
+                          existingFeedback={feedbackMap?.[parentMsgId]}
+                          onFeedbackSaved={onFeedbackSaved}
+                        />
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Draft Actions */}
                 {/* <div className="bg-white rounded-lg border border-gray-200 p-4">

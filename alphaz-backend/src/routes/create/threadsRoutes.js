@@ -16,6 +16,7 @@ router.post('/threads/:id/messages', threadsController.addMessage);
 router.post('/threads/:id/drafts', threadsController.saveDraft);
 router.get('/drafts/:draftId', threadsController.getDraft);
 router.put('/drafts/:draftId', threadsController.updateDraftVersion);
+router.put('/drafts/:draftId/parent-message', threadsController.updateDraftVersionParentMessage);
 router.delete('/drafts/:draftId', threadsController.deleteDraft);
 
 module.exports = router;

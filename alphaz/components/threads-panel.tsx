@@ -2,7 +2,6 @@
 
 import { useState, useCallback, memo } from "react";
 import {
-  Plus,
   MessageSquare,
   Trash2,
   MoreVertical,
@@ -179,7 +178,7 @@ export function ThreadsPanel({
           className="p-1.5 hover:bg-muted rounded-md transition-colors"
           title="New thread"
         >
-          <Plus className="h-4 w-4" />
+          <Pencil className="h-4 w-4" />
         </button>
       </div>
 

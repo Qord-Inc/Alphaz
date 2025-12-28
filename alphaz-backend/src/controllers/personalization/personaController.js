@@ -190,7 +190,7 @@ async function textToSpeech(req, res) {
     }
 
     const mp3 = await openai.audio.speech.create({
-      model: 'tts-1',
+      model: 'gpt-4o-mini-tts-2025-12-15',
       voice: 'alloy',
       input: text,
       speed: 1.0
