@@ -11,6 +11,7 @@ import { useAIChat } from "@/hooks/useAIChat";
 import { useUser } from "@/hooks/useUser";
 import { MarkdownMessage } from "@/components/markdown-message";
 import { DraftPanel, Draft } from "@/components/draft-panel";
+import { UploadedImage } from "@/components/linkedin-post-preview";
 import { ThreadsPanel } from "@/components/threads-panel";
 import { useThreads } from "@/hooks/useThreads";
 import { saveDraft as saveDraftToApi, updateDraftVersion as updateDraftVersionApi } from "@/lib/threadsApi";
@@ -50,6 +51,7 @@ const ChatMessage = memo(({
     draftVersion?: number;
     draftTitle?: string;
     isStreamingProgress?: boolean;
+    isFollowUpQuestion?: boolean;
     timestamp?: Date;
   };
   onViewDraft?: (draftId: string, version?: number) => void;
@@ -140,6 +142,44 @@ const ChatMessage = memo(({
     );
   }
 
+  // Check if this is a follow-up question from AI
+  // Use explicit flag if set (from streaming detection), otherwise fallback to heuristic
+  const isFollowUpQuestion = message.isFollowUpQuestion || (
+    message.role === "assistant" && 
+    !isDraftIntent && 
+    message.content.length < 400 && 
+    (/^(Could you|Can you|Would you|Should I|Do you want|Do you mean|What|Which|How)/i.test(message.content.trim()) ||
+     /clarify|which (one|type|style|tone|version)|what do you mean|more specific/i.test(message.content))
+  );
+  
+  // Render follow-up questions with special styling (highlighted card)
+  if (isFollowUpQuestion) {
+    return (
+      <div className="w-full flex justify-center">
+        <div className="max-w-4xl w-full px-6">
+          <div className="flex justify-start">
+            <div className="flex flex-col gap-1 max-w-[85%]">
+              <div className="bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-200 dark:border-amber-800 rounded-lg px-4 py-3 shadow-sm">
+                <div className="flex items-start gap-2">
+                  <MessageSquare className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                  <div className="text-sm text-amber-900 dark:text-amber-100">
+                    <MarkdownMessage content={message.content} />
+                  </div>
+                </div>
+              </div>
+              {/* Timestamp */}
+              {message.timestamp && (
+                <span className="text-[10px] text-muted-foreground text-left">
+                  {formatTime(message.timestamp)}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  
   // Regular message (not draft/edit) - show full content in chat
   return (
     <div className="w-full flex justify-center">
@@ -333,7 +373,7 @@ export default function Create({ threadId }: CreatePageProps = {}) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [isPostingLinkedIn, setIsPostingLinkedIn] = useState(false);
-  const [postStatus, setPostStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [postStatus, setPostStatus] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
   
   // Streaming state for draft panel
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
@@ -880,7 +920,7 @@ export default function Create({ threadId }: CreatePageProps = {}) {
   /**
    * Post the current draft to LinkedIn for the selected organization or personal profile
    */
-  const handlePostToLinkedIn = useCallback(async (content: string) => {
+  const handlePostToLinkedIn = useCallback(async (content: string, images?: UploadedImage[]) => {
     if (!content) return;
     if (!user?.clerk_user_id) {
       setPostStatus({ type: 'error', message: 'User not loaded yet.' });
@@ -890,14 +930,53 @@ export default function Create({ threadId }: CreatePageProps = {}) {
     try {
       setIsPostingLinkedIn(true);
       
-      // Determine endpoint and payload based on account type
+      // Step 1: Upload images to LinkedIn if any
+      const uploadedAssets: string[] = [];
+      if (images && images.length > 0) {
+        setPostStatus({ type: 'info', message: `Uploading ${images.length} image(s)...` });
+        
+        for (const image of images) {
+          try {
+            const formData = new FormData();
+            formData.append('image', image.file);
+            formData.append('clerkUserId', user.clerk_user_id);
+            if (!isPersonalProfile && selectedOrganization?.id) {
+              formData.append('organizationId', selectedOrganization.id);
+            }
+            formData.append('isPersonal', String(isPersonalProfile));
+            
+            const uploadResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/linkedin/upload-image`, {
+              method: 'POST',
+              body: formData,
+            });
+            
+            const uploadData = await uploadResponse.json().catch(() => ({}));
+            if (!uploadResponse.ok) {
+              throw new Error(uploadData?.error || 'Failed to upload image');
+            }
+            
+            if (uploadData.asset) {
+              uploadedAssets.push(uploadData.asset);
+            }
+          } catch (uploadErr) {
+            console.error('Image upload error:', uploadErr);
+            // Continue with other images but note the error
+          }
+        }
+        
+        if (uploadedAssets.length === 0 && images.length > 0) {
+          throw new Error('Failed to upload any images. Please try again.');
+        }
+      }
+      
+      // Step 2: Post to LinkedIn (with or without images)
       const endpoint = isPersonalProfile 
         ? `${process.env.NEXT_PUBLIC_API_URL}/api/linkedin/post/personal`
         : `${process.env.NEXT_PUBLIC_API_URL}/api/linkedin/post`;
       
       const payload = isPersonalProfile
-        ? { clerkUserId: user.clerk_user_id, content }
-        : { clerkUserId: user.clerk_user_id, organizationId: selectedOrganization?.id, content };
+        ? { clerkUserId: user.clerk_user_id, content, imageAssets: uploadedAssets.length > 0 ? uploadedAssets : undefined }
+        : { clerkUserId: user.clerk_user_id, organizationId: selectedOrganization?.id, content, imageAssets: uploadedAssets.length > 0 ? uploadedAssets : undefined };
       
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -1379,8 +1458,13 @@ export default function Create({ threadId }: CreatePageProps = {}) {
                   {hasDrafts && (
                     <DraftPanel
                       drafts={drafts}
-                      organizationName={selectedOrganization?.name || ''}
-                      organizationImage={undefined}
+                      displayName={isPersonalProfile 
+                        ? (user?.linkedin_profile_name || user?.name || 'You') 
+                        : (selectedOrganization?.name || '')}
+                      displayImage={isPersonalProfile 
+                        ? user?.linkedin_profile_picture_url 
+                        : selectedOrganization?.logoUrl}
+                      isPersonalProfile={isPersonalProfile}
                       isCollapsed={isDraftPanelCollapsed}
                       selectedDraftId={selectedDraftId}
                       selectedVersion={selectedDraftVersion}
@@ -1395,6 +1479,7 @@ export default function Create({ threadId }: CreatePageProps = {}) {
                       isPosting={isPostingLinkedIn}
                       onContentEdit={handleDirectContentEdit}
                       isSavingEdit={isSavingDirectEdit}
+                      enableImageUpload={true}
                     />
                   )}
                 </div>
@@ -1500,35 +1585,43 @@ export default function Create({ threadId }: CreatePageProps = {}) {
         {/* Toast / status messages (centered) */}
         {postStatus && (
           <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setPostStatus(null)} />
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => postStatus.type !== 'info' && setPostStatus(null)} />
             <div
               className={`relative w-full max-w-md rounded-2xl border shadow-2xl bg-card/95 backdrop-blur px-6 py-5 flex flex-col gap-4 ${
                 postStatus.type === 'success'
                   ? 'border-emerald-200 dark:border-emerald-900/60'
+                  : postStatus.type === 'info'
+                  ? 'border-blue-200 dark:border-blue-900/60'
                   : 'border-red-200 dark:border-red-900/60'
               }`}
               role="alertdialog"
               aria-live="polite"
-              aria-label={postStatus.type === 'success' ? 'Publish success' : 'Publish error'}
+              aria-label={postStatus.type === 'success' ? 'Publish success' : postStatus.type === 'info' ? 'Publishing' : 'Publish error'}
             >
               <div className="flex items-start gap-3">
                 <div
                   className={`mt-1 h-3 w-3 rounded-full ${
-                    postStatus.type === 'success' ? 'bg-emerald-500' : 'bg-red-500'
+                    postStatus.type === 'success' 
+                      ? 'bg-emerald-500' 
+                      : postStatus.type === 'info'
+                      ? 'bg-blue-500 animate-pulse'
+                      : 'bg-red-500'
                   }`}
                 />
                 <div className="text-base text-foreground leading-relaxed">
                   {postStatus.message}
                 </div>
               </div>
-              <div className="flex justify-end">
-                <button
-                  onClick={() => setPostStatus(null)}
-                  className="inline-flex items-center justify-center rounded-md border border-border bg-card px-4 py-2 text-sm font-medium text-foreground hover:bg-muted transition-colors"
-                >
-                  Close
-                </button>
-              </div>
+              {postStatus.type !== 'info' && (
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => setPostStatus(null)}
+                    className="inline-flex items-center justify-center rounded-md border border-border bg-card px-4 py-2 text-sm font-medium text-foreground hover:bg-muted transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}

@@ -577,7 +577,7 @@ async function getCompanyPages(req, res) {
 // Post content to LinkedIn as an organization
 async function postOrganizationUpdate(req, res) {
   try {
-    const { clerkUserId, organizationId, content } = req.body || {};
+    const { clerkUserId, organizationId, content, imageAssets } = req.body || {};
 
     if (!clerkUserId || !organizationId || !content) {
       return res.status(400).json({ error: 'clerkUserId, organizationId, and content are required' });
@@ -592,14 +592,31 @@ async function postOrganizationUpdate(req, res) {
     const accessToken = tokenResult.accessToken;
     const authorUrn = `urn:li:organization:${organizationId}`;
 
+    // Build the payload based on whether we have images
+    let shareContent;
+    if (imageAssets && Array.isArray(imageAssets) && imageAssets.length > 0) {
+      // Post with images
+      shareContent = {
+        shareCommentary: { text: content },
+        shareMediaCategory: 'IMAGE',
+        media: imageAssets.map(asset => ({
+          status: 'READY',
+          media: asset
+        }))
+      };
+    } else {
+      // Text-only post
+      shareContent = {
+        shareCommentary: { text: content },
+        shareMediaCategory: 'NONE'
+      };
+    }
+
     const payload = {
       author: authorUrn,
       lifecycleState: 'PUBLISHED',
       specificContent: {
-        'com.linkedin.ugc.ShareContent': {
-          shareCommentary: { text: content },
-          shareMediaCategory: 'NONE'
-        }
+        'com.linkedin.ugc.ShareContent': shareContent
       },
       visibility: {
         'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC'
@@ -633,7 +650,7 @@ async function postOrganizationUpdate(req, res) {
 // Post content to LinkedIn as the user's personal profile
 async function postPersonalUpdate(req, res) {
   try {
-    const { clerkUserId, content } = req.body || {};
+    const { clerkUserId, content, imageAssets } = req.body || {};
 
     if (!clerkUserId || !content) {
       return res.status(400).json({ error: 'clerkUserId and content are required' });
@@ -665,14 +682,31 @@ async function postPersonalUpdate(req, res) {
 
     const authorUrn = `urn:li:person:${user.linkedin_user_id}`;
 
+    // Build the payload based on whether we have images
+    let shareContent;
+    if (imageAssets && Array.isArray(imageAssets) && imageAssets.length > 0) {
+      // Post with images
+      shareContent = {
+        shareCommentary: { text: content },
+        shareMediaCategory: 'IMAGE',
+        media: imageAssets.map(asset => ({
+          status: 'READY',
+          media: asset
+        }))
+      };
+    } else {
+      // Text-only post
+      shareContent = {
+        shareCommentary: { text: content },
+        shareMediaCategory: 'NONE'
+      };
+    }
+
     const payload = {
       author: authorUrn,
       lifecycleState: 'PUBLISHED',
       specificContent: {
-        'com.linkedin.ugc.ShareContent': {
-          shareCommentary: { text: content },
-          shareMediaCategory: 'NONE'
-        }
+        'com.linkedin.ugc.ShareContent': shareContent
       },
       visibility: {
         'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC'
@@ -699,6 +733,131 @@ async function postPersonalUpdate(req, res) {
     }
   } catch (error) {
     console.error('Error in postPersonalUpdate:', error);
+    res.status(500).json({ error: 'Internal server error', details: error.message });
+  }
+}
+
+// Upload image to LinkedIn and get asset URN
+// LinkedIn Images API: https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api
+async function uploadImage(req, res) {
+  try {
+    const { clerkUserId, organizationId, isPersonal } = req.body || {};
+    const imageFile = req.file; // Expects multer middleware for file upload
+
+    if (!clerkUserId) {
+      return res.status(400).json({ error: 'clerkUserId is required' });
+    }
+
+    if (!imageFile) {
+      return res.status(400).json({ error: 'Image file is required' });
+    }
+
+    // Get user data including access token and linkedin_user_id
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('linkedin_access_token, linkedin_token_expires_at, linkedin_user_id')
+      .eq('clerk_user_id', clerkUserId)
+      .single();
+
+    if (userError || !user) {
+      return res.status(400).json({ error: 'User not found' });
+    }
+
+    if (!user.linkedin_access_token) {
+      return res.status(400).json({ error: 'LinkedIn not connected' });
+    }
+
+    // Check if token is expired
+    if (user.linkedin_token_expires_at && new Date(user.linkedin_token_expires_at) < new Date()) {
+      return res.status(400).json({ error: 'LinkedIn token expired. Please reconnect your LinkedIn account.' });
+    }
+
+    const accessToken = user.linkedin_access_token;
+
+    // Determine the owner URN based on personal or organization
+    let ownerUrn;
+    if (isPersonal || !organizationId) {
+      if (!user.linkedin_user_id) {
+        return res.status(400).json({ error: 'LinkedIn user ID not found. Please reconnect your LinkedIn account.' });
+      }
+      ownerUrn = `urn:li:person:${user.linkedin_user_id}`;
+    } else {
+      ownerUrn = `urn:li:organization:${organizationId}`;
+    }
+
+    // Step 1: Register the image upload to get the upload URL
+    const registerPayload = {
+      registerUploadRequest: {
+        recipes: ['urn:li:digitalmediaRecipe:feedshare-image'],
+        owner: ownerUrn,
+        serviceRelationships: [
+          {
+            relationshipType: 'OWNER',
+            identifier: 'urn:li:userGeneratedContent'
+          }
+        ]
+      }
+    };
+
+    let uploadUrl, asset;
+    try {
+      const registerResponse = await axios.post(
+        'https://api.linkedin.com/v2/assets?action=registerUpload',
+        registerPayload,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            'X-Restli-Protocol-Version': '2.0.0',
+            'LinkedIn-Version': '202511'
+          }
+        }
+      );
+
+      uploadUrl = registerResponse.data?.value?.uploadMechanism?.['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest']?.uploadUrl;
+      asset = registerResponse.data?.value?.asset;
+
+      if (!uploadUrl || !asset) {
+        console.error('LinkedIn register upload response:', registerResponse.data);
+        return res.status(500).json({ error: 'Failed to get upload URL from LinkedIn' });
+      }
+    } catch (registerError) {
+      const raw = registerError.response?.data;
+      console.error('Error registering upload with LinkedIn:', raw || registerError.message);
+      return res.status(500).json({ 
+        error: 'Failed to register image upload with LinkedIn', 
+        details: raw || registerError.message 
+      });
+    }
+
+    // Step 2: Upload the binary image data to the upload URL
+    try {
+      await axios.put(uploadUrl, imageFile.buffer, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': imageFile.mimetype || 'image/jpeg'
+        },
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity
+      });
+    } catch (uploadError) {
+      const raw = uploadError.response?.data;
+      console.error('Error uploading image to LinkedIn:', raw || uploadError.message);
+      return res.status(500).json({ 
+        error: 'Failed to upload image to LinkedIn', 
+        details: raw || uploadError.message 
+      });
+    }
+
+    // Return the asset URN - this will be used when creating the post
+    return res.status(200).json({ 
+      success: true, 
+      asset: asset,
+      message: 'Image uploaded successfully'
+    });
+
+  } catch (error) {
+    console.error('Error in uploadImage:', error);
     res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 }
@@ -813,6 +972,7 @@ module.exports = {
   getCompanyPages,
   postOrganizationUpdate,
   postPersonalUpdate,
+  uploadImage,
   refreshLinkedInToken,
   debugAcls,
   getLinkedInAccessToken

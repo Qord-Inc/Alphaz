@@ -1,12 +1,24 @@
 'use client';
 
-import { Building2, Pencil, Check, X } from 'lucide-react';
+import { Building2, Pencil, Check, X, ImagePlus, Trash2, Loader2 } from 'lucide-react';
 import { memo, useState, useCallback, useRef, useEffect } from 'react';
 import { InlineEditPopup } from './inline-edit-popup';
 
+export interface UploadedImage {
+  file: File;
+  preview: string; // Data URL for preview
+  assetUrn?: string; // LinkedIn asset URN after upload
+  isUploading?: boolean;
+  error?: string;
+}
+
 interface LinkedInPostPreviewProps {
-  organizationName: string;
-  organizationImage?: string;
+  /** Display name (organization name or user's LinkedIn name) */
+  displayName: string;
+  /** Display image (organization logo or user's LinkedIn profile pic) */
+  displayImage?: string;
+  /** Whether this is a personal profile (affects subtitle text) */
+  isPersonalProfile?: boolean;
   postContent: string;
   timestamp?: string;
   enableInlineEdit?: boolean;
@@ -31,11 +43,18 @@ interface LinkedInPostPreviewProps {
   editedContent?: string;
   /** Called when edited content changes */
   onEditedContentChange?: (content: string) => void;
+  /** Uploaded images for this post */
+  uploadedImages?: UploadedImage[];
+  /** Called when user adds images */
+  onImagesChange?: (images: UploadedImage[]) => void;
+  /** Enable image upload feature */
+  enableImageUpload?: boolean;
 }
 
 export const LinkedInPostPreview = memo(({ 
-  organizationName, 
-  organizationImage, 
+  displayName, 
+  displayImage, 
+  isPersonalProfile = false,
   postContent,
   timestamp = 'Just now',
   enableInlineEdit = false,
@@ -51,6 +70,10 @@ export const LinkedInPostPreview = memo(({
   onSaveEdit,
   editedContent: controlledEditedContent,
   onEditedContentChange,
+  // Image upload props
+  uploadedImages = [],
+  onImagesChange,
+  enableImageUpload = false,
 }: LinkedInPostPreviewProps) => {
   const [selectedText, setSelectedText] = useState('');
   const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
@@ -65,6 +88,68 @@ export const LinkedInPostPreview = memo(({
   const editedContent = isControlled ? (controlledEditedContent ?? postContent) : internalEditedContent;
   
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Handle image selection
+  const handleImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0 || !onImagesChange) return;
+    
+    const newImages: UploadedImage[] = [];
+    
+    Array.from(files).forEach(file => {
+      // Only accept images
+      if (!file.type.startsWith('image/')) return;
+      
+      // Check file size (8MB limit for LinkedIn)
+      if (file.size > 8 * 1024 * 1024) {
+        alert(`File "${file.name}" is too large. Maximum size is 8MB.`);
+        return;
+      }
+      
+      // Create preview URL
+      const preview = URL.createObjectURL(file);
+      newImages.push({ file, preview });
+    });
+    
+    if (newImages.length > 0) {
+      // LinkedIn allows up to 9 images per post
+      const maxImages = 9;
+      const currentCount = uploadedImages.length;
+      const availableSlots = maxImages - currentCount;
+      const imagesToAdd = newImages.slice(0, availableSlots);
+      
+      if (newImages.length > availableSlots) {
+        alert(`You can only add up to ${maxImages} images. Adding ${imagesToAdd.length} of ${newImages.length} selected.`);
+      }
+      
+      onImagesChange([...uploadedImages, ...imagesToAdd]);
+    }
+    
+    // Reset input so the same file can be selected again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }, [uploadedImages, onImagesChange]);
+  
+  // Remove an image
+  const handleRemoveImage = useCallback((index: number) => {
+    if (!onImagesChange) return;
+    
+    // Revoke the object URL to free memory
+    const imageToRemove = uploadedImages[index];
+    if (imageToRemove?.preview) {
+      URL.revokeObjectURL(imageToRemove.preview);
+    }
+    
+    const newImages = uploadedImages.filter((_, i) => i !== index);
+    onImagesChange(newImages);
+  }, [uploadedImages, onImagesChange]);
+  
+  // Trigger file input click
+  const handleAddImageClick = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
   
   // Sync editedContent when postContent changes from external source
   useEffect(() => {
@@ -210,28 +295,34 @@ export const LinkedInPostPreview = memo(({
       {/* Post Header */}
       <div className="p-4">
         <div className="flex items-start gap-3">
-          {/* Organization Avatar */}
+          {/* Profile Avatar */}
           <div className="flex-shrink-0">
-            {organizationImage ? (
+            {displayImage ? (
               <img 
-                src={organizationImage} 
-                alt={organizationName}
-                className="w-12 h-12 rounded object-cover"
+                src={displayImage} 
+                alt={displayName}
+                className={`w-12 h-12 object-cover ${isPersonalProfile ? 'rounded-full' : 'rounded'}`}
               />
             ) : (
-              <div className="w-12 h-12 rounded bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                <Building2 className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+              <div className={`w-12 h-12 bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center ${isPersonalProfile ? 'rounded-full' : 'rounded'}`}>
+                {isPersonalProfile ? (
+                  <span className="text-lg font-semibold text-blue-600 dark:text-blue-400">
+                    {displayName?.charAt(0)?.toUpperCase() || 'U'}
+                  </span>
+                ) : (
+                  <Building2 className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+                )}
               </div>
             )}
           </div>
 
-          {/* Organization Info */}
+          {/* Profile Info */}
           <div className="flex-1 min-w-0">
             <h3 className="font-semibold text-foreground text-sm truncate">
-              {organizationName}
+              {displayName}
             </h3>
             <p className="text-xs text-muted-foreground">
-              Company • Follow
+              {isPersonalProfile ? 'Member' : 'Company'} • Follow
             </p>
             <p className="text-xs text-gray-500 flex items-center gap-1">
               {timestamp} • 🌎
@@ -337,6 +428,78 @@ export const LinkedInPostPreview = memo(({
           onSubmit={handleInlineEditSubmit}
           onClose={handleClosePopup}
         />
+      )}
+
+      {/* Image Upload Section */}
+      {enableImageUpload && (
+        <>
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={handleImageSelect}
+            className="hidden"
+          />
+          
+          {/* Image previews */}
+          {uploadedImages.length > 0 && (
+            <div className="px-4 pb-3">
+              <div className={`grid gap-2 ${
+                uploadedImages.length === 1 ? 'grid-cols-1' : 
+                uploadedImages.length === 2 ? 'grid-cols-2' :
+                uploadedImages.length === 3 ? 'grid-cols-3' :
+                'grid-cols-2'
+              }`}>
+                {uploadedImages.map((image, index) => (
+                  <div 
+                    key={index}
+                    className="relative group rounded-lg overflow-hidden bg-muted aspect-square"
+                  >
+                    <img
+                      src={image.preview}
+                      alt={`Upload ${index + 1}`}
+                      className="w-full h-full object-cover"
+                    />
+                    {/* Remove button */}
+                    <button
+                      onClick={() => handleRemoveImage(index)}
+                      className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-black/80 rounded-full text-white opacity-0 group-hover:opacity-100 transition"
+                      title="Remove image"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                    {/* Upload status */}
+                    {image.isUploading && (
+                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                        <Loader2 className="h-6 w-6 text-white animate-spin" />
+                      </div>
+                    )}
+                    {image.error && (
+                      <div className="absolute bottom-0 left-0 right-0 bg-red-500/90 text-white text-xs p-1 text-center">
+                        {image.error}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Add image button */}
+          {uploadedImages.length < 9 && postContent && !isStreaming && (
+            <div className="px-4 pb-3">
+              <button
+                onClick={handleAddImageClick}
+                className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg border border-dashed border-border transition w-full justify-center"
+              >
+                <ImagePlus className="h-4 w-4" />
+                <span>{uploadedImages.length === 0 ? 'Add photo' : `Add more photos (${uploadedImages.length}/9)`}</span>
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       {/* Post Stats */}

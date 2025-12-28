@@ -1,4 +1,5 @@
 import { openai } from '@ai-sdk/openai';
+import { anthropic } from '@ai-sdk/anthropic';
 import { streamText, generateObject } from 'ai';
 import { z } from 'zod';
 import { buildOrganizationSystemPrompt } from '@/lib/prompts/organizationPrompts';
@@ -86,8 +87,6 @@ export async function POST(request: Request) {
 
     // Validate personal account has context before allowing chat
     if (!isOrganizationAccount) {
-      console.log(`\n🔍 [VALIDATING PERSONAL CONTEXT]`);
-      console.log(`   Context Data:`, JSON.stringify(contextData, null, 2));
       console.log(`   Has Context:`, hasPersonalContext(contextData));
       
       if (!hasPersonalContext(contextData)) {
@@ -149,17 +148,25 @@ export async function POST(request: Request) {
       }
     }
 
-    console.log(`\n🤖 [OPENAI] Calling GPT-5.1 with streaming`);
-    console.log(`   Model: gpt-5.1`);
+    // Use Claude Opus 4.5 for edit/draft (best quality), GPT for other intents
+    const useClaudeModel = intent === 'edit' || intent === 'draft';
+    const modelName = useClaudeModel ? 'claude-opus-4-5-20251101' : 'gpt-5.1';
+    const modelProvider = useClaudeModel ? 'Anthropic' : 'OpenAI';
+    
+    console.log(`\n🤖 [${modelProvider.toUpperCase()}] Calling ${modelName} with streaming`);
+    console.log(`   Model: ${modelName}`);
     console.log(`   Temperature: 0.7`);
     console.log(`   Stream: Enabled (real-time response)`);
+    console.log(`   Reason: ${useClaudeModel ? 'Edit/Draft intent - using Claude Opus 4.5 for best quality' : 'Ideate/Feedback intent - using GPT'}`);
 
-    // Call OpenAI with streaming enabled
+    // Call AI with streaming enabled - use Claude Opus 4.5 for edit/draft, GPT for others
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const model = useClaudeModel ? anthropic('claude-opus-4-5-20251101') : openai('gpt-5.1');
     const stream = streamText({
-      model: openai('gpt-5.1'), // Fast, cost-effective model (gpt-5.1 doesn't support temperature)
+      model: model as any, // Type cast needed due to SDK version mismatch
       system: systemPrompt,
       messages: messages,
-      temperature: 0.7, // Balanced creativity and consistency
+      temperature: 0.7,
     });
 
     console.log(`\n⏳ [STREAMING STARTED]`);

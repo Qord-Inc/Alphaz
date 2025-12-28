@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, memo, useCallback, useEffect } from 'react';
-import { LinkedInPostPreview } from './linkedin-post-preview';
+import { LinkedInPostPreview, UploadedImage } from './linkedin-post-preview';
 import { ChevronLeft, ChevronRight, FileText, Trash2, Copy, Check, Loader2, Share2, X, Save } from 'lucide-react';
 
 export interface DraftVersion {
@@ -25,8 +25,12 @@ export interface Draft {
 
 interface DraftPanelProps {
   drafts: Draft[];
-  organizationName: string;
-  organizationImage?: string;
+  /** Display name (organization name or user's LinkedIn name) */
+  displayName: string;
+  /** Display image (organization logo or user's LinkedIn profile pic) */
+  displayImage?: string;
+  /** Whether this is a personal profile (affects display text) */
+  isPersonalProfile?: boolean;
   isCollapsed: boolean;
   selectedDraftId?: string | null;
   selectedVersion?: number | null;
@@ -40,18 +44,21 @@ interface DraftPanelProps {
   onDeleteDraft: (id: string) => void;
   onCopyDraft: (content: string) => void;
   onInlineEdit?: (instruction: string, selectedText: string) => void;
-  onPostDraft?: (content: string) => Promise<void> | void;
+  onPostDraft?: (content: string, images?: UploadedImage[]) => Promise<void> | void;
   isPosting?: boolean;
   /** Called when content is directly edited */
   onContentEdit?: (draftId: string, newContent: string, version: number) => Promise<void> | void;
   /** Whether a direct edit is being saved */
   isSavingEdit?: boolean;
+  /** Enable image upload feature */
+  enableImageUpload?: boolean;
 }
 
 export const DraftPanel = memo(({ 
   drafts, 
-  organizationName, 
-  organizationImage,
+  displayName, 
+  displayImage,
+  isPersonalProfile = false,
   isCollapsed,
   selectedDraftId,
   selectedVersion: externalSelectedVersion,
@@ -66,6 +73,7 @@ export const DraftPanel = memo(({
   isPosting,
   onContentEdit,
   isSavingEdit,
+  enableImageUpload = false,
 }: DraftPanelProps) => {
   const [selectedDraftIndex, setSelectedDraftIndex] = useState(drafts.length - 1);
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null); // null means current version
@@ -75,6 +83,9 @@ export const DraftPanel = memo(({
   // Direct edit state
   const [isEditingDraft, setIsEditingDraft] = useState(false);
   const [editedDraftContent, setEditedDraftContent] = useState('');
+  
+  // Image upload state - keyed by draft ID
+  const [draftImages, setDraftImages] = useState<Record<string, UploadedImage[]>>({});
   
   // Auto-select draft when selectedDraftId changes
   useEffect(() => {
@@ -96,6 +107,36 @@ export const DraftPanel = memo(({
 
   const selectedDraft = drafts[selectedDraftIndex];
   const hasDrafts = drafts.length > 0;
+  
+  // Get images for current draft
+  const currentDraftImages = selectedDraft?.id ? (draftImages[selectedDraft.id] || []) : [];
+  
+  // Handle images change for current draft
+  const handleImagesChange = useCallback((images: UploadedImage[]) => {
+    if (!selectedDraft?.id) return;
+    setDraftImages(prev => ({
+      ...prev,
+      [selectedDraft.id]: images
+    }));
+  }, [selectedDraft?.id]);
+  
+  // Clear images when draft is deleted
+  const handleDeleteDraftWithImages = useCallback((draftId: string) => {
+    // Revoke all image URLs
+    const images = draftImages[draftId];
+    if (images) {
+      images.forEach(img => {
+        if (img.preview) URL.revokeObjectURL(img.preview);
+      });
+    }
+    // Remove from state
+    setDraftImages(prev => {
+      const { [draftId]: _, ...rest } = prev;
+      return rest;
+    });
+    // Call original handler
+    onDeleteDraft(draftId);
+  }, [draftImages, onDeleteDraft]);
   
   // Get the content to display:
   // 1. If streaming, show streaming content
@@ -126,8 +167,9 @@ export const DraftPanel = memo(({
   const handlePublishConfirm = useCallback(() => {
     if (!displayContent || !onPostDraft || isStreaming || isPosting) return;
     setShowPublishConfirm(false);
-    onPostDraft(displayContent);
-  }, [displayContent, onPostDraft, isStreaming, isPosting]);
+    // Pass images along with content
+    onPostDraft(displayContent, currentDraftImages.length > 0 ? currentDraftImages : undefined);
+  }, [displayContent, onPostDraft, isStreaming, isPosting, currentDraftImages]);
 
   const handlePublishCancel = useCallback(() => {
     setShowPublishConfirm(false);
@@ -291,8 +333,9 @@ export const DraftPanel = memo(({
             {isStreaming && streamingContent && (
               <div className="space-y-4">
                 <LinkedInPostPreview
-                  organizationName={organizationName}
-                  organizationImage={organizationImage}
+                  displayName={displayName}
+                  displayImage={displayImage}
+                  isPersonalProfile={isPersonalProfile}
                   postContent={streamingContent}
                   timestamp="Just now"
                   enableInlineEdit={false}
@@ -361,8 +404,9 @@ export const DraftPanel = memo(({
                 )}
                 
                 <LinkedInPostPreview
-                  organizationName={organizationName}
-                  organizationImage={organizationImage}
+                  displayName={displayName}
+                  displayImage={displayImage}
+                  isPersonalProfile={isPersonalProfile}
                   postContent={displayContent || selectedDraft.content}
                   timestamp={new Date(selectedDraft.timestamp).toLocaleTimeString([], {
                     hour: '2-digit',
@@ -380,6 +424,10 @@ export const DraftPanel = memo(({
                   onCancelEdit={handleCancelEdit}
                   onSaveEdit={handleSaveEdit}
                   onEditedContentChange={handleEditedContentChange}
+                  // Image upload
+                  enableImageUpload={enableImageUpload}
+                  uploadedImages={currentDraftImages}
+                  onImagesChange={handleImagesChange}
                 />
 
                 {/* Draft Actions */}
