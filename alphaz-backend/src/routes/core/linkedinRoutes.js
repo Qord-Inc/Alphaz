@@ -1,6 +1,23 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
 const linkedinController = require('../../controllers/core/linkedinController');
+
+// Configure multer for memory storage (image upload)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 8 * 1024 * 1024, // 8MB limit (LinkedIn's limit)
+  },
+  fileFilter: (req, file, cb) => {
+    // Accept only image files
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'), false);
+    }
+  }
+});
 
 // Generate LinkedIn OAuth URL
 router.get('/auth/linkedin/url', linkedinController.getLinkedInAuthUrl);
@@ -16,6 +33,9 @@ router.delete('/linkedin/disconnect/:clerkUserId', linkedinController.disconnect
 
 // Get user's company pages
 router.get('/linkedin/company-pages/:clerkUserId', linkedinController.getCompanyPages);
+
+// Upload image to LinkedIn (returns asset URN for use in posts)
+router.post('/linkedin/upload-image', upload.single('image'), linkedinController.uploadImage);
 
 // Post to LinkedIn as an organization
 router.post('/linkedin/post', linkedinController.postOrganizationUpdate);

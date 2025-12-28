@@ -13,6 +13,7 @@ export interface ChatMessage {
   intent?: 'edit' | 'ideate' | 'draft' | 'feedback';
   draftContent?: string; // Clean post content for draft intent
   isStreamingProgress?: boolean; // True when showing rotating progress text during draft streaming
+  isFollowUpQuestion?: boolean; // True when AI asks a clarifying question instead of generating draft
 }
 
 export interface ContextData {
@@ -238,9 +239,22 @@ export function useAIChat({
               onDraftStreamComplete(fullText, detectedIntent as 'draft' | 'edit', assistantMessageId);
             }
             
+            // For follow-up questions: ensure final content is set and streaming flag is cleared
+            // This triggers the UI to switch from streaming to the follow-up question style
+            if (isFollowUpQuestion) {
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === assistantMessageId
+                    ? { ...msg, content: fullText, isStreamingProgress: false, intent: undefined, isFollowUpQuestion: true }
+                    : msg
+                )
+              );
+            }
+            
             // Call AI message complete callback for persistence (all messages)
+            // Use null intent if it was a follow-up question (intent was cleared)
             if (onAIMessageComplete && fullText.trim()) {
-              onAIMessageComplete(fullText, detectedIntent, assistantMessageId);
+              onAIMessageComplete(fullText, isFollowUpQuestion ? null : detectedIntent, assistantMessageId);
             }
             break;
           }
@@ -265,6 +279,18 @@ export function useAIChat({
             if (isFollowUpQuestion) {
               console.log(`🔄 Detected follow-up question, switching to chat stream`);
               streamingToDraft = false;
+              
+              // Clear the intent so it's not saved as draft/edit in database
+              setCurrentIntent(null);
+              
+              // Update the assistant message to remove intent and mark as follow-up question
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === assistantMessageId
+                    ? { ...msg, intent: undefined, isFollowUpQuestion: true }
+                    : msg
+                )
+              );
               
               // Signal to stop draft streaming
               if (onDraftStream) {

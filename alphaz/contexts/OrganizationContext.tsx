@@ -7,6 +7,7 @@ interface Organization {
   name: string
   role: string
   vanityName?: string
+  logoUrl?: string
 }
 
 interface OrganizationContextType {

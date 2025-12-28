@@ -332,7 +332,8 @@ export function Sidebar({ className }: SidebarProps) {
                                 id: company.id,
                                 name: company.name,
                                 role: company.role || 'ADMINISTRATOR',
-                                vanityName: company.vanityName
+                                vanityName: company.vanityName,
+                                logoUrl: company.logoUrl
                               })
                               setShowDropdown(false)
                             }}
