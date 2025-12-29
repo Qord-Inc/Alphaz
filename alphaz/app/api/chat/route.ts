@@ -34,7 +34,7 @@ async function detectIntent(userMessage: string): Promise<string> {
   try {
     const result = await generateObject({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      model: openai('gpt-4.1-nano') as any, // Fast, cheap for classification. Type cast needed due to SDK version mismatch
+      model: openai('gpt-4o-mini') as any, // Good balance of speed and accuracy for classification
       schema: IntentSchema,
       prompt: `Classify the user's intent in one word. User message: "${userMessage}"`,
       temperature: 0.1, // Low temperature for consistent classification
