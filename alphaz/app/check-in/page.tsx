@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState, useCallback, useMemo } from "react"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { useOrganization } from "@/contexts/OrganizationContext"
@@ -15,7 +16,8 @@ import {
   MicOff,
   CheckCircle2,
   AlertCircle,
-  Volume2
+  Volume2,
+  PenLine
 } from "lucide-react"
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"
@@ -51,6 +53,7 @@ interface TranscriptEntry {
 }
 
 export default function CheckInPage() {
+  const router = useRouter()
   const { isPersonalProfile } = useOrganization()
   const { user, loading: userLoading } = useUser()
 
@@ -620,7 +623,7 @@ export default function CheckInPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-4">
                     <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50/60 dark:bg-emerald-900/10 p-3">
                       <div className="flex items-center gap-2 mb-2">
                         <Sparkles className="h-4 w-4 text-emerald-600" />
@@ -644,11 +647,33 @@ export default function CheckInPage() {
                       <div className="space-y-2">
                         {record.content_ideas?.map((item, idx) => (
                           <div key={idx} className="rounded-md bg-white dark:bg-blue-900/40 p-2 border border-blue-100 dark:border-blue-800">
-                            <p className="text-sm font-semibold text-blue-800 dark:text-blue-50">{item.title || item.headline}</p>
-                            <p className="text-sm text-blue-700 dark:text-blue-200 mt-1">{item.description || item.why_it_matters}</p>
-                            {(item.angle || item.suggested_angle) && (
-                              <p className="text-xs text-blue-600 dark:text-blue-300 mt-1">Angle: {item.angle || item.suggested_angle}</p>
-                            )}
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1">
+                                <p className="text-sm font-semibold text-blue-800 dark:text-blue-50">{item.title || item.headline}</p>
+                                <p className="text-sm text-blue-700 dark:text-blue-200 mt-1">{item.description || item.why_it_matters}</p>
+                                {(item.angle || item.suggested_angle) && (
+                                  <p className="text-xs text-blue-600 dark:text-blue-300 mt-1">Angle: {item.angle || item.suggested_angle}</p>
+                                )}
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="shrink-0 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40"
+                                onClick={() => {
+                                  const title = item.title || item.headline || ''
+                                  const description = item.description || item.why_it_matters || ''
+                                  const angle = item.angle || item.suggested_angle || ''
+                                  let prompt = `Generate a LinkedIn draft on this idea:\n\nTitle: ${title}`
+                                  if (description) prompt += `\nDescription: ${description}`
+                                  if (angle) prompt += `\nAngle: ${angle}`
+                                  sessionStorage.setItem('checkin_draft_prompt', prompt)
+                                  router.push('/create')
+                                }}
+                              >
+                                <PenLine className="h-3 w-3 mr-1" />
+                                Draft
+                              </Button>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -729,7 +754,7 @@ export default function CheckInPage() {
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-4">
                           <div className="p-4 rounded-lg bg-emerald-50/80 dark:bg-emerald-900/20 border border-emerald-200/70 dark:border-emerald-800/70">
                             <div className="flex items-center gap-2 mb-2">
                               <span className="h-2 w-2 rounded-full bg-emerald-500" />
@@ -754,19 +779,40 @@ export default function CheckInPage() {
                               <span className="h-2 w-2 rounded-full bg-amber-500" />
                               <p className="text-sm font-semibold text-neutral-900 dark:text-white">Ideas</p>
                             </div>
-                            <ul className="space-y-2 text-sm text-neutral-800 dark:text-neutral-200 list-disc list-inside">
+                            <div className="space-y-2">
                               {record.content_ideas?.length ? (
                                 record.content_ideas.map((idea, idx) => (
-                                  <li key={idx}>
-                                    <div className="font-semibold text-neutral-900 dark:text-white">{idea.title || idea.headline}</div>
-                                    {(idea.description || idea.why_it_matters) && <div className="text-neutral-700 dark:text-neutral-300 text-sm">{idea.description || idea.why_it_matters}</div>}
-                                    {(idea.angle || idea.suggested_angle) && <div className="text-xs text-neutral-600 dark:text-neutral-400">Angle: {idea.angle || idea.suggested_angle}</div>}
-                                  </li>
+                                  <div key={idx} className="flex items-start justify-between gap-3 p-2 rounded-md bg-white/50 dark:bg-neutral-800/40 border border-amber-200/50 dark:border-amber-800/50">
+                                    <div className="flex-1">
+                                      <div className="font-semibold text-neutral-900 dark:text-white">{idea.title || idea.headline}</div>
+                                      {(idea.description || idea.why_it_matters) && <div className="text-neutral-700 dark:text-neutral-300 text-sm mt-1">{idea.description || idea.why_it_matters}</div>}
+                                      {(idea.angle || idea.suggested_angle) && <div className="text-xs text-neutral-600 dark:text-neutral-400 mt-1">Angle: {idea.angle || idea.suggested_angle}</div>}
+                                    </div>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="shrink-0 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40"
+                                      onClick={() => {
+                                        const title = idea.title || idea.headline || ''
+                                        const description = idea.description || idea.why_it_matters || ''
+                                        const angle = idea.angle || idea.suggested_angle || ''
+                                        let prompt = `Generate a LinkedIn draft on this idea:\n\nTitle: ${title}`
+                                        if (description) prompt += `\nDescription: ${description}`
+                                        if (angle) prompt += `\nAngle: ${angle}`
+                                        sessionStorage.setItem('checkin_draft_prompt', prompt)
+                                        setShowHistoryModal(false)
+                                        router.push('/create')
+                                      }}
+                                    >
+                                      <PenLine className="h-3 w-3 mr-1" />
+                                      Draft
+                                    </Button>
+                                  </div>
                                 ))
                               ) : (
-                                <li className="list-none text-neutral-500 dark:text-neutral-400">No ideas captured.</li>
+                                <p className="text-neutral-500 dark:text-neutral-400 text-sm">No ideas captured.</p>
                               )}
-                            </ul>
+                            </div>
                           </div>
                         </div>
 

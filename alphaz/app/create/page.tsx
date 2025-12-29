@@ -1405,6 +1405,33 @@ export default function Create({ threadId }: CreatePageProps = {}) {
     }
   }, [currentThread, restoreMessages]);
 
+  /**
+   * Check for check-in draft prompt from sessionStorage
+   * This is set when user clicks "Draft" button on an idea from the check-in page
+   * Waits for personal context to load before sending (for personal profiles)
+   */
+  useEffect(() => {
+    const checkinPrompt = sessionStorage.getItem('checkin_draft_prompt');
+    
+    // For personal profiles, wait for context to load
+    const contextReady = isPersonalProfile ? (personalContext !== null && !isLoadingPersonalContext) : true;
+    
+    if (checkinPrompt && !currentThread && !isLoading && clerkUser?.id && contextReady) {
+      // Clear the stored prompt immediately to prevent re-triggering
+      sessionStorage.removeItem('checkin_draft_prompt');
+      
+      // Set the input value and trigger send after a small delay
+      // to ensure the component is fully mounted
+      setInputValue(checkinPrompt);
+      
+      // Use setTimeout to allow state to update before sending
+      setTimeout(() => {
+        sendMessage(checkinPrompt);
+        setInputValue(''); // Clear input after sending
+      }, 100);
+    }
+  }, [currentThread, isLoading, clerkUser?.id, sendMessage, isPersonalProfile, personalContext, isLoadingPersonalContext]);
+
   return (
     <AppLayout>
       <div className="flex-1 flex overflow-hidden relative">
