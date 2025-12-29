@@ -462,17 +462,15 @@ export default function CheckInPage() {
           </Card>
         )}
 
-        {/* Status message */}
-        {message && (
+        {/* Status message - hide when completed since results section shows the info */}
+        {message && callStatus !== 'completed' && (
           <Card className={`p-4 ${
-            callStatus === 'completed' 
-              ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-200'
-              : callStatus === 'error'
+            callStatus === 'error'
               ? 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200'
               : 'border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200'
           }`}>
             <div className="flex items-center gap-2">
-              {callStatus === 'completed' ? <CheckCircle2 className="h-5 w-5" /> : <AlertCircle className="h-5 w-5" />}
+              <AlertCircle className="h-5 w-5" />
               <span>{message}</span>
             </div>
           </Card>
@@ -480,7 +478,8 @@ export default function CheckInPage() {
 
         {/* Main call card */}
         <Card className="p-6 space-y-6 bg-white dark:bg-card border-gray-200 dark:border-border">
-          {/* Call status indicator */}
+          {/* Call status indicator - hide when completed to save space */}
+          {callStatus !== 'completed' && (
           <div className="flex flex-col items-center justify-center py-8 space-y-6">
             {/* Avatar/Status visual */}
             <div className={`relative h-32 w-32 rounded-full flex items-center justify-center transition-all duration-300 ${
@@ -490,13 +489,9 @@ export default function CheckInPage() {
                   : 'bg-orange-50 dark:bg-orange-900/20 ring-2 ring-orange-300 dark:ring-orange-700'
                 : callStatus === 'connecting'
                 ? 'bg-blue-50 dark:bg-blue-900/20 ring-2 ring-blue-300 dark:ring-blue-700 animate-pulse'
-                : callStatus === 'completed'
-                ? 'bg-emerald-50 dark:bg-emerald-900/20 ring-2 ring-emerald-300 dark:ring-emerald-700'
                 : 'bg-gray-100 dark:bg-gray-800 ring-2 ring-gray-200 dark:ring-gray-700'
             }`}>
-              {callStatus === 'completed' ? (
-                <CheckCircle2 className="h-16 w-16 text-emerald-500 dark:text-emerald-400" />
-              ) : callStatus === 'active' ? (
+              {callStatus === 'active' ? (
                 <Volume2 className={`h-16 w-16 text-orange-500 dark:text-orange-400 ${isAISpeaking ? 'animate-pulse' : ''}`} />
               ) : callStatus === 'connecting' ? (
                 <Loader2 className="h-16 w-16 text-blue-500 dark:text-blue-400 animate-spin" />
@@ -512,13 +507,11 @@ export default function CheckInPage() {
                 {callStatus === 'connecting' && 'Connecting...'}
                 {callStatus === 'active' && (isAISpeaking ? 'AI is speaking...' : 'Listening...')}
                 {callStatus === 'ending' && 'Ending call...'}
-                {callStatus === 'completed' && 'Check-in Complete!'}
                 {callStatus === 'error' && 'Connection Error'}
               </p>
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 {callStatus === 'idle' && "Click the button below to start your voice check-in"}
                 {callStatus === 'active' && "Speak naturally - the AI will guide you; we'll end automatically"}
-                {callStatus === 'completed' && "Insights and ideas are ready below"}
               </p>
             </div>
 
@@ -583,6 +576,7 @@ export default function CheckInPage() {
               )}
             </div>
           </div>
+          )}
 
           {/* Live transcript */}
           {transcript.length > 0 && callStatus !== 'completed' && (
@@ -606,81 +600,80 @@ export default function CheckInPage() {
               </div>
             </div>
           )}
-              {/* Results */}
-              {record && callStatus === 'completed' && (
-                <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
-                  <div className="flex flex-col items-center text-center gap-2 py-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-100 dark:border-emerald-800">
-                    <Sparkles className="h-6 w-6 text-emerald-600" />
-                    <div>
-                      <p className="text-lg font-semibold text-emerald-800 dark:text-emerald-100">Check-in Complete!</p>
-                      <p className="text-sm text-emerald-700 dark:text-emerald-200">Great conversation! Here's what we captured from your check-in.</p>
-                      {record.duration_seconds && (
-                        <div className="mt-2 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white dark:bg-emerald-900/40 border border-emerald-200 dark:border-emerald-800 text-sm text-emerald-800 dark:text-emerald-100">
-                          <span>⏱</span>
-                          <span>{Math.floor(record.duration_seconds / 60)}:{String(record.duration_seconds % 60).padStart(2, '0')}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
 
-                  <div className="space-y-4">
-                    <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50/60 dark:bg-emerald-900/10 p-3">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Sparkles className="h-4 w-4 text-emerald-600" />
-                        <span className="text-sm font-semibold text-emerald-800 dark:text-emerald-100">3 Key Insights</span>
-                      </div>
-                      <div className="space-y-2">
-                        {record.key_insights?.map((item, idx) => (
-                          <div key={idx} className="rounded-md bg-white dark:bg-emerald-900/40 p-2 border border-emerald-100 dark:border-emerald-800">
-                            <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-50">{item.title}</p>
-                            {item.summary && <p className="text-sm text-emerald-700 dark:text-emerald-200 mt-1">{item.summary}</p>}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/10 p-3">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Sparkles className="h-4 w-4 text-blue-600" />
-                        <span className="text-sm font-semibold text-blue-800 dark:text-blue-100">3 Content Ideas</span>
-                      </div>
-                      <div className="space-y-2">
-                        {record.content_ideas?.map((item, idx) => (
-                          <div key={idx} className="rounded-md bg-white dark:bg-blue-900/40 p-2 border border-blue-100 dark:border-blue-800">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="flex-1">
-                                <p className="text-sm font-semibold text-blue-800 dark:text-blue-50">{item.title || item.headline}</p>
-                                <p className="text-sm text-blue-700 dark:text-blue-200 mt-1">{item.description || item.why_it_matters}</p>
-                                {(item.angle || item.suggested_angle) && (
-                                  <p className="text-xs text-blue-600 dark:text-blue-300 mt-1">Angle: {item.angle || item.suggested_angle}</p>
-                                )}
-                              </div>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="shrink-0 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40"
-                                onClick={() => {
-                                  const title = item.title || item.headline || ''
-                                  const description = item.description || item.why_it_matters || ''
-                                  const angle = item.angle || item.suggested_angle || ''
-                                  let prompt = `Generate a LinkedIn draft on this idea:\n\nTitle: ${title}`
-                                  if (description) prompt += `\nDescription: ${description}`
-                                  if (angle) prompt += `\nAngle: ${angle}`
-                                  sessionStorage.setItem('checkin_draft_prompt', prompt)
-                                  router.push('/create')
-                                }}
-                              >
-                                <PenLine className="h-3 w-3 mr-1" />
-                                Draft
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
+          {/* Results */}
+          {record && callStatus === 'completed' && (
+            <div className="space-y-4">
+              {/* Compact header with duration */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-5 w-5 text-orange-500" />
+                  <span className="font-medium text-gray-900 dark:text-white">Check-in Complete</span>
                 </div>
-              )}
+                {record.duration_seconds && (
+                  <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-xs text-gray-600 dark:text-gray-400">
+                    <span>⏱</span>
+                    <span>{Math.floor(record.duration_seconds / 60)}:{String(record.duration_seconds % 60).padStart(2, '0')}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <Sparkles className="h-4 w-4 text-orange-500" />
+                  <span className="text-sm font-semibold text-gray-900 dark:text-white">Key Insights</span>
+                </div>
+                <div className="space-y-2">
+                  {record.key_insights?.map((item, idx) => (
+                    <div key={idx} className="rounded-md bg-white dark:bg-gray-800 p-2 border border-gray-200 dark:border-gray-700">
+                      <p className="text-sm font-semibold text-gray-900 dark:text-white">{item.title}</p>
+                      {item.summary && <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{item.summary}</p>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-orange-200 dark:border-orange-800/50 bg-orange-50 dark:bg-orange-900/10 p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <Sparkles className="h-4 w-4 text-orange-500" />
+                  <span className="text-sm font-semibold text-gray-900 dark:text-white">Content Ideas</span>
+                </div>
+                <div className="space-y-2">
+                  {record.content_ideas?.map((item, idx) => (
+                    <div key={idx} className="rounded-md bg-white dark:bg-gray-800 p-2 border border-orange-200 dark:border-orange-800/50">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1">
+                          <p className="text-sm font-semibold text-gray-900 dark:text-white">{item.title || item.headline}</p>
+                          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{item.description || item.why_it_matters}</p>
+                          {(item.angle || item.suggested_angle) && (
+                            <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">Angle: {item.angle || item.suggested_angle}</p>
+                          )}
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="shrink-0 border-orange-300 dark:border-orange-700 text-orange-600 dark:text-orange-400 hover:bg-orange-100 dark:hover:bg-orange-900/40"
+                          onClick={() => {
+                            const title = item.title || item.headline || ''
+                            const description = item.description || item.why_it_matters || ''
+                            const angle = item.angle || item.suggested_angle || ''
+                            let prompt = `Generate a LinkedIn draft on this idea:\n\nTitle: ${title}`
+                            if (description) prompt += `\nDescription: ${description}`
+                            if (angle) prompt += `\nAngle: ${angle}`
+                            sessionStorage.setItem('checkin_draft_prompt', prompt)
+                            router.push('/create')
+                          }}
+                        >
+                          <PenLine className="h-3 w-3 mr-1" />
+                          Draft
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </Card>
 
         {/* History modal */}
@@ -755,9 +748,9 @@ export default function CheckInPage() {
                         </div>
 
                         <div className="space-y-4">
-                          <div className="p-4 rounded-lg bg-emerald-50/80 dark:bg-emerald-900/20 border border-emerald-200/70 dark:border-emerald-800/70">
+                          <div className="p-4 rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700">
                             <div className="flex items-center gap-2 mb-2">
-                              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                              <Sparkles className="h-4 w-4 text-orange-500" />
                               <p className="text-sm font-semibold text-neutral-900 dark:text-white">Insights</p>
                             </div>
                             <ul className="space-y-2 text-sm text-neutral-800 dark:text-neutral-200 list-disc list-inside">
@@ -774,15 +767,15 @@ export default function CheckInPage() {
                             </ul>
                           </div>
 
-                          <div className="p-4 rounded-lg bg-amber-50/80 dark:bg-amber-900/20 border border-amber-200/70 dark:border-amber-800/70">
+                          <div className="p-4 rounded-lg bg-orange-50 dark:bg-orange-900/10 border border-orange-200 dark:border-orange-800/50">
                             <div className="flex items-center gap-2 mb-2">
-                              <span className="h-2 w-2 rounded-full bg-amber-500" />
+                              <Sparkles className="h-4 w-4 text-orange-500" />
                               <p className="text-sm font-semibold text-neutral-900 dark:text-white">Ideas</p>
                             </div>
                             <div className="space-y-2">
                               {record.content_ideas?.length ? (
                                 record.content_ideas.map((idea, idx) => (
-                                  <div key={idx} className="flex items-start justify-between gap-3 p-2 rounded-md bg-white/50 dark:bg-neutral-800/40 border border-amber-200/50 dark:border-amber-800/50">
+                                  <div key={idx} className="flex items-start justify-between gap-3 p-2 rounded-md bg-white dark:bg-gray-800 border border-orange-200 dark:border-orange-800/50">
                                     <div className="flex-1">
                                       <div className="font-semibold text-neutral-900 dark:text-white">{idea.title || idea.headline}</div>
                                       {(idea.description || idea.why_it_matters) && <div className="text-neutral-700 dark:text-neutral-300 text-sm mt-1">{idea.description || idea.why_it_matters}</div>}
@@ -791,7 +784,7 @@ export default function CheckInPage() {
                                     <Button
                                       size="sm"
                                       variant="outline"
-                                      className="shrink-0 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40"
+                                      className="shrink-0 border-orange-300 dark:border-orange-700 text-orange-600 dark:text-orange-400 hover:bg-orange-100 dark:hover:bg-orange-900/40"
                                       onClick={() => {
                                         const title = idea.title || idea.headline || ''
                                         const description = idea.description || idea.why_it_matters || ''
@@ -817,9 +810,9 @@ export default function CheckInPage() {
                         </div>
 
                         {record.transcript && (
-                          <div className="p-4 rounded-lg bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700">
+                          <div className="p-4 rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700">
                             <div className="flex items-center gap-2 mb-2 text-sm font-semibold text-neutral-900 dark:text-white">
-                              <span className="h-2 w-2 rounded-full bg-blue-500" />
+                              <span className="h-2 w-2 rounded-full bg-orange-500" />
                               Transcript
                             </div>
                             <p className="text-sm text-neutral-700 dark:text-neutral-300 whitespace-pre-wrap leading-relaxed">{record.transcript}</p>
