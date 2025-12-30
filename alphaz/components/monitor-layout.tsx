@@ -551,7 +551,7 @@ export function MonitorLayout() {
                     Number(dashboard.posts.impressionChange) >= 0 ? "positive" : "negative"
                   }
                   icon={Eye}
-                  iconColor="text-blue-500"
+                  iconColor="text-muted-foreground"
                 />
                 <MetricsCard
                   title="New Followers"
@@ -573,7 +573,7 @@ export function MonitorLayout() {
                     Number(dashboard.followers.changePercent) >= 0 ? "positive" : "negative"
                   }
                   icon={Users}
-                  iconColor="text-purple-500"
+                  iconColor="text-muted-foreground"
                 />
                 <MetricsCard
                   title="Engagement Rate"
@@ -587,7 +587,7 @@ export function MonitorLayout() {
                     Number(dashboard.posts.engagementChange) >= 0 ? "positive" : "negative"
                   }
                   icon={Heart}
-                  iconColor="text-pink-500"
+                  iconColor="text-muted-foreground"
                 />
               </>
             ) : (
@@ -612,7 +612,7 @@ export function MonitorLayout() {
                     Number(dashboard.pageViews.changePercent) >= 0 ? "positive" : "negative"
                   }
                   icon={Eye}
-                  iconColor="text-blue-500"
+                  iconColor="text-muted-foreground"
                 />
                 <MetricsCard
                   title="New Followers"
@@ -634,7 +634,7 @@ export function MonitorLayout() {
                     Number(dashboard.followers.changePercent) >= 0 ? "positive" : "negative"
                   }
                   icon={Users}
-                  iconColor="text-green-500"
+                  iconColor="text-muted-foreground"
                 />
                 <MetricsCard
                   title="Engagement Rate"
@@ -642,7 +642,7 @@ export function MonitorLayout() {
                   change={loading || error || !dashboard ? "" : "Based on recent page activity"}
                   changeType="positive"
                   icon={Heart}
-                  iconColor="text-pink-500"
+                  iconColor="text-muted-foreground"
                 />
               </>
             )}
@@ -666,7 +666,7 @@ export function MonitorLayout() {
                   Number(dashboard.posts.reactionChange) >= 0 ? "positive" : "negative"
                 }
                 icon={TrendingUp}
-                iconColor="text-green-500"
+                iconColor="text-muted-foreground"
               />
               <MetricsCard
                 title="Comments"
@@ -683,7 +683,7 @@ export function MonitorLayout() {
                   Number(dashboard.posts.commentChange) >= 0 ? "positive" : "negative"
                 }
                 icon={MessageCircle}
-                iconColor="text-orange-500"
+                iconColor="text-muted-foreground"
               />
               <MetricsCard
                 title="Reshares"
@@ -700,7 +700,7 @@ export function MonitorLayout() {
                   Number(dashboard.posts.reshareChange) >= 0 ? "positive" : "negative"
                 }
                 icon={Share2}
-                iconColor="text-indigo-500"
+                iconColor="text-muted-foreground"
               />
             </div>
           )}

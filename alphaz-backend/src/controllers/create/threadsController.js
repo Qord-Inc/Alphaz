@@ -312,17 +312,22 @@ async function saveDraft(req, res) {
 
       const newVersion = existingDraft.current_version + 1;
 
-      // Add new version
-      const { error: versionError } = await supabase
+      // Add new version using upsert to handle race conditions with unique constraint
+      const { data: versionData, error: versionError } = await supabase
         .from('chat_thread_draft_versions')
-        .insert({
+        .upsert({
           draft_id: draftId,
           version: newVersion,
           content,
           edit_prompt: editPrompt || null,
           changes: changes || null,
           parent_message_id: parentMessageId || null
-        });
+        }, {
+          onConflict: 'draft_id,version',
+          ignoreDuplicates: false // Update if exists
+        })
+        .select()
+        .single();
 
       if (versionError) {
         console.error('Error adding draft version:', versionError);

@@ -355,8 +355,14 @@ export default function Plan() {
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  onClick={() => window.location.href = `/create/${draft.thread_id}`}
-                                  title="View thread"
+                                  onClick={() => {
+                                    const params = new URLSearchParams();
+                                    if (draft.draft_id) params.set('draftId', draft.draft_id);
+                                    if (draft.draft_version_id) params.set('versionId', draft.draft_version_id);
+                                    const queryString = params.toString();
+                                    window.location.href = `/create/${draft.thread_id}${queryString ? `?${queryString}` : ''}`;
+                                  }}
+                                  title="View thread & draft"
                                 >
                                   <ExternalLink className="h-4 w-4" />
                                 </Button>
@@ -442,8 +448,14 @@ export default function Plan() {
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  onClick={() => window.location.href = `/create/${draft.thread_id}`}
-                                  title="View thread"
+                                  onClick={() => {
+                                    const params = new URLSearchParams();
+                                    if (draft.draft_id) params.set('draftId', draft.draft_id);
+                                    if (draft.draft_version_id) params.set('versionId', draft.draft_version_id);
+                                    const queryString = params.toString();
+                                    window.location.href = `/create/${draft.thread_id}${queryString ? `?${queryString}` : ''}`;
+                                  }}
+                                  title="View thread & draft"
                                 >
                                   <ExternalLink className="h-4 w-4" />
                                 </Button>
