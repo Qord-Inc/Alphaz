@@ -571,6 +571,9 @@ export default function Create({ threadId }: CreatePageProps = {}) {
   
   // Track the last user edit prompt for draft versioning
   const lastEditPromptRef = useRef<string | null>(null);
+  
+  // Track which draft versions are already saved to plan
+  const [savedVersionIds, setSavedVersionIds] = useState<Set<string>>(new Set());
 
   // Fetch personal context for personal accounts
   useEffect(() => {
@@ -1240,6 +1243,65 @@ export default function Create({ threadId }: CreatePageProps = {}) {
     }
   }, [isPersonalProfile, selectedOrganization, user?.clerk_user_id]);
 
+  /**
+   * Save draft to plan (scheduled or saved for later)
+   */
+  const handleSaveToPlan = useCallback(async (
+    content: string,
+    scheduledAt?: string,
+    title?: string,
+    notes?: string
+  ) => {
+    if (!content || !user?.clerk_user_id) return;
+
+    try {
+      // Find the current draft and version to link
+      const currentDraft = drafts.find(d => d.id === selectedDraftId);
+      const versionNumber = selectedDraftVersion !== null ? selectedDraftVersion : currentDraft?.currentVersion;
+      const currentVersion = currentDraft?.versions.find(v => v.version === versionNumber);
+
+      const payload = {
+        clerkUserId: user.clerk_user_id,
+        organizationId: !isPersonalProfile && selectedOrganization?.id ? selectedOrganization.id : undefined,
+        draftVersionId: currentVersion?.dbId || undefined,
+        draftId: currentDraft?.dbId || undefined,
+        threadId: currentThread?.id || undefined,
+        content,
+        title: title || undefined,
+        scheduledAt: scheduledAt || undefined,
+        notes: notes || undefined
+      };
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/scheduled-drafts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save draft to plan');
+      }
+
+      const data = await response.json();
+      
+      // Add the version ID to saved set
+      if (currentVersion?.dbId) {
+        setSavedVersionIds(prev => new Set([...prev, currentVersion.dbId!]));
+      }
+      
+      // Show success message
+      setPostStatus({ 
+        type: 'success', 
+        message: scheduledAt ? 'Draft scheduled successfully!' : 'Draft saved to plan!' 
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to save to plan';
+      setPostStatus({ type: 'error', message: msg });
+      throw err; // Re-throw to let the component handle it
+    }
+  }, [user?.clerk_user_id, isPersonalProfile, selectedOrganization, currentThread, drafts, selectedDraftId, selectedDraftVersion]);
+
   // Ref to track the active thread ID for message persistence
   const activeThreadIdRef = useRef<string | null>(null);
   
@@ -1247,6 +1309,45 @@ export default function Create({ threadId }: CreatePageProps = {}) {
   useEffect(() => {
     activeThreadIdRef.current = currentThread?.id || null;
   }, [currentThread]);
+  
+  // Fetch saved draft version IDs to know which versions are already saved to plan
+  useEffect(() => {
+    const fetchSavedVersionIds = async () => {
+      if (!user?.clerk_user_id) {
+        setSavedVersionIds(new Set());
+        return;
+      }
+
+      try {
+        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+        const params = new URLSearchParams();
+        if (isPersonalProfile) {
+          params.append('isPersonal', 'true');
+        } else if (selectedOrganization?.id) {
+          params.append('organizationId', selectedOrganization.id);
+        }
+        
+        const response = await fetch(
+          `${API_URL}/api/scheduled-drafts/${user.clerk_user_id}?${params}`,
+          { credentials: 'include' }
+        );
+        
+        if (response.ok) {
+          const data = await response.json();
+          const versionIds = new Set<string>(
+            (data.drafts || [])
+              .map((d: any) => d.draft_version_id)
+              .filter((id: string | null) => id !== null)
+          );
+          setSavedVersionIds(versionIds);
+        }
+      } catch (err) {
+        console.error('Failed to fetch saved version IDs:', err);
+      }
+    };
+
+    fetchSavedVersionIds();
+  }, [user?.clerk_user_id, isPersonalProfile, selectedOrganization?.id]);
 
   // Fetch feedback for current thread when it changes
   useEffect(() => {
@@ -1457,6 +1558,7 @@ export default function Create({ threadId }: CreatePageProps = {}) {
             changes: v.changes || [],
             timestamp: new Date(v.created_at),
             parent_message_id: v.parent_message_id, // Include parent message ID for feedback
+            dbId: v.id, // Store version DB id
           })),
           timestamp: new Date(d.created_at),
         };
@@ -1792,6 +1894,8 @@ export default function Create({ threadId }: CreatePageProps = {}) {
                       userId={clerkUser?.id}
                       feedbackMap={feedbackMap}
                       onFeedbackSaved={handleFeedbackSaved}
+                      onSaveToPlan={handleSaveToPlan}
+                      savedVersionIds={savedVersionIds}
                     />
                   )}
                 </div>
@@ -1896,10 +2000,10 @@ export default function Create({ threadId }: CreatePageProps = {}) {
 
         {/* Toast / status messages (centered) */}
         {postStatus && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => postStatus.type !== 'info' && setPostStatus(null)} />
+          <div className="fixed inset-0 z-[100] flex items-center justify-center px-4 pointer-events-none">
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm pointer-events-auto" onClick={() => postStatus.type !== 'info' && setPostStatus(null)} />
             <div
-              className={`relative w-full max-w-md rounded-2xl border shadow-2xl bg-card/95 backdrop-blur px-6 py-5 flex flex-col gap-4 ${
+              className={`relative z-10 w-full max-w-md rounded-2xl border shadow-2xl bg-card/95 backdrop-blur px-6 py-5 flex flex-col gap-4 pointer-events-auto ${
                 postStatus.type === 'success'
                   ? 'border-emerald-200 dark:border-emerald-900/60'
                   : postStatus.type === 'info'

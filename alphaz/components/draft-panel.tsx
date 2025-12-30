@@ -3,7 +3,13 @@
 import { useState, memo, useCallback, useEffect } from 'react';
 import { LinkedInPostPreview, UploadedImage } from './linkedin-post-preview';
 import { MessageFeedback } from './message-feedback';
-import { ChevronLeft, ChevronRight, FileText, Trash2, Copy, Check, Loader2, Share2, X, Save } from 'lucide-react';
+import { ChevronLeft, ChevronRight, FileText, Trash2, Copy, Check, Loader2, Share2, X, Save, Calendar, Bookmark } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { Textarea } from './ui/textarea';
+import { Button } from './ui/button';
+import { DateTimePicker } from './ui/date-time-picker';
 
 export interface DraftVersion {
   version: number;
@@ -12,6 +18,7 @@ export interface DraftVersion {
   changes?: string[];
   editPrompt?: string;
   parent_message_id?: string;
+  dbId?: string; // Database ID for the version
 }
 
 export interface Draft {
@@ -62,6 +69,10 @@ interface DraftPanelProps {
   feedbackMap?: Record<string, { type: 'up' | 'down'; text?: string }>;
   /** Callback when feedback is saved */
   onFeedbackSaved?: (messageId: string, type: 'up' | 'down', text?: string) => void;
+  /** Callback when draft is saved/scheduled */
+  onSaveToPlan?: (content: string, scheduledAt?: string, title?: string, notes?: string) => Promise<void>;
+  /** Set of draft version IDs that are already saved to plan */
+  savedVersionIds?: Set<string>;
 }
 
 export const DraftPanel = memo(({ 
@@ -88,6 +99,8 @@ export const DraftPanel = memo(({
   userId,
   feedbackMap,
   onFeedbackSaved,
+  onSaveToPlan,
+  savedVersionIds,
 }: DraftPanelProps) => {
   const [selectedDraftIndex, setSelectedDraftIndex] = useState(drafts.length - 1);
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null); // null means current version
@@ -97,6 +110,15 @@ export const DraftPanel = memo(({
   // Direct edit state
   const [isEditingDraft, setIsEditingDraft] = useState(false);
   const [editedDraftContent, setEditedDraftContent] = useState('');
+  
+  // Save to plan state
+  const [showSaveToPlanDialog, setShowSaveToPlanDialog] = useState(false);
+  const [saveToPlanForm, setSaveToPlanForm] = useState({
+    title: '',
+    scheduledAt: undefined as Date | undefined,
+    notes: ''
+  });
+  const [isSavingToPlan, setIsSavingToPlan] = useState(false);
   
   // Image upload state - keyed by draft ID
   const [draftImages, setDraftImages] = useState<Record<string, UploadedImage[]>>({});
@@ -188,6 +210,37 @@ export const DraftPanel = memo(({
   const handlePublishCancel = useCallback(() => {
     setShowPublishConfirm(false);
   }, []);
+  
+  // Save to plan handlers
+  const handleSaveToPlanClick = useCallback(() => {
+    if (!displayContent) return;
+    setSaveToPlanForm({
+      title: selectedDraft?.title || '',
+      scheduledAt: undefined,
+      notes: ''
+    });
+    setShowSaveToPlanDialog(true);
+  }, [displayContent, selectedDraft]);
+
+  const handleSaveToPlan = useCallback(async () => {
+    if (!displayContent || !onSaveToPlan) return;
+    
+    setIsSavingToPlan(true);
+    try {
+      await onSaveToPlan(
+        displayContent,
+        saveToPlanForm.scheduledAt?.toISOString() || undefined,
+        saveToPlanForm.title || undefined,
+        saveToPlanForm.notes || undefined
+      );
+      setShowSaveToPlanDialog(false);
+      setSaveToPlanForm({ title: '', scheduledAt: undefined, notes: '' });
+    } catch (error) {
+      console.error('Error saving to plan:', error);
+    } finally {
+      setIsSavingToPlan(false);
+    }
+  }, [displayContent, onSaveToPlan, saveToPlanForm]);
   
   // Start editing mode
   const handleStartEdit = useCallback(() => {
@@ -607,6 +660,32 @@ export const DraftPanel = memo(({
                       {copiedId === selectedDraft?.id ? 'Copied' : 'Copy'}
                     </button>
 
+                    {onSaveToPlan && (() => {
+                      // Check if current version is already saved
+                      const currentVersionObj = selectedDraft && selectedVersion !== null && selectedVersion !== selectedDraft.currentVersion
+                        ? selectedDraft.versions.find(v => v.version === selectedVersion)
+                        : selectedDraft?.versions.find(v => v.version === selectedDraft?.currentVersion);
+                      const isAlreadySaved = !!(currentVersionObj?.dbId && savedVersionIds?.has(currentVersionObj.dbId));
+                      
+                      return (
+                        <button
+                          onClick={handleSaveToPlanClick}
+                          disabled={!displayContent || isStreaming || isAlreadySaved}
+                          className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                            isAlreadySaved
+                              ? 'bg-muted/50 text-muted-foreground cursor-not-allowed border-border opacity-60'
+                              : displayContent && !isStreaming
+                                ? 'bg-card hover:bg-muted border-border text-foreground'
+                                : 'bg-muted text-muted-foreground cursor-not-allowed border-border'
+                          }`}
+                          title={isAlreadySaved ? "Already saved to plan" : "Save for later or schedule"}
+                        >
+                          <Bookmark className={`h-4 w-4 ${isAlreadySaved ? 'fill-current' : ''}`} />
+                          {isAlreadySaved ? 'Saved' : 'Save to Plan'}
+                        </button>
+                      );
+                    })()}
+
                     <button
                       onClick={handlePublishClick}
                       disabled={!displayContent || !onPostDraft || isStreaming || isPosting}
@@ -672,6 +751,79 @@ export const DraftPanel = memo(({
                 </div>
               </div>
             )}
+
+            {/* Save to Plan Dialog */}
+            <Dialog open={showSaveToPlanDialog} onOpenChange={setShowSaveToPlanDialog}>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>Save to Plan</DialogTitle>
+                  <DialogDescription>
+                    Save this draft for later or schedule it for a specific date and time
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div>
+                    <Label htmlFor="plan-title">Title (optional)</Label>
+                    <Input
+                      id="plan-title"
+                      value={saveToPlanForm.title}
+                      onChange={(e) => setSaveToPlanForm({ ...saveToPlanForm, title: e.target.value })}
+                      placeholder="Give this draft a title..."
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="plan-scheduledAt">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Calendar className="h-4 w-4" />
+                        Schedule Date & Time (optional)
+                      </div>
+                    </Label>
+                    <DateTimePicker
+                      date={saveToPlanForm.scheduledAt}
+                      setDate={(date) => setSaveToPlanForm({ ...saveToPlanForm, scheduledAt: date })}
+                      placeholder="Save for later (no specific date)"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Leave empty to save for later without a specific schedule
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="plan-notes">Notes (optional)</Label>
+                    <Textarea
+                      id="plan-notes"
+                      value={saveToPlanForm.notes}
+                      onChange={(e) => setSaveToPlanForm({ ...saveToPlanForm, notes: e.target.value })}
+                      placeholder="Add notes or reminders about this draft..."
+                      rows={3}
+                    />
+                  </div>
+                  <div>
+                    <Label>Content Preview</Label>
+                    <div className="mt-2 p-3 bg-muted rounded-md text-sm max-h-32 overflow-auto">
+                      {displayContent}
+                    </div>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowSaveToPlanDialog(false)} disabled={isSavingToPlan}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleSaveToPlan} disabled={isSavingToPlan}>
+                    {isSavingToPlan ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Bookmark className="h-4 w-4 mr-2" />
+                        Save to Plan
+                      </>
+                    )}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
         </div>
       )}
     </div>
