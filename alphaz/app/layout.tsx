@@ -21,8 +21,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Alphaz - LinkedIn Analytics",
+  title: "Alphaz - LinkedIn Content Creator",
   description: "Track your LinkedIn performance and insights",
+  icons: {
+    icon: '/favicon.ico',
+  },
 };
 
 export default function RootLayout({
