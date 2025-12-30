@@ -665,7 +665,7 @@ export const DraftPanel = memo(({
                       const currentVersionObj = selectedDraft && selectedVersion !== null && selectedVersion !== selectedDraft.currentVersion
                         ? selectedDraft.versions.find(v => v.version === selectedVersion)
                         : selectedDraft?.versions.find(v => v.version === selectedDraft?.currentVersion);
-                      const isAlreadySaved = currentVersionObj?.dbId && savedVersionIds?.has(currentVersionObj.dbId);
+                      const isAlreadySaved = !!(currentVersionObj?.dbId && savedVersionIds?.has(currentVersionObj.dbId));
                       
                       return (
                         <button
