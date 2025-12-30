@@ -514,9 +514,11 @@ MessageList.displayName = 'MessageList';
 
 interface CreatePageProps {
   threadId?: string; // Optional thread ID from URL
+  initialDraftId?: string; // DB ID of draft to auto-select
+  initialVersionId?: string; // DB ID of version to auto-select
 }
 
-export default function Create({ threadId }: CreatePageProps = {}) {
+export default function Create({ threadId, initialDraftId, initialVersionId }: CreatePageProps = {}) {
   // Router for navigation
   const router = useRouter();
   
@@ -1566,10 +1568,30 @@ export default function Create({ threadId }: CreatePageProps = {}) {
       
       setDrafts(restoredDrafts);
       
-      // Select the first draft if any
+      // Select draft based on initial params, or first draft if any
       if (restoredDrafts.length > 0) {
-        setSelectedDraftId(restoredDrafts[0].id);
-        setSelectedDraftVersion(restoredDrafts[0].currentVersion);
+        let draftToSelect = restoredDrafts[0];
+        let versionToSelect = restoredDrafts[0].currentVersion;
+        
+        // If initialDraftId is provided, find and select that draft
+        if (initialDraftId) {
+          const matchingDraft = restoredDrafts.find(d => d.dbId === initialDraftId);
+          if (matchingDraft) {
+            draftToSelect = matchingDraft;
+            versionToSelect = matchingDraft.currentVersion;
+            
+            // If initialVersionId is also provided, find the version number
+            if (initialVersionId) {
+              const matchingVersion = matchingDraft.versions.find(v => v.dbId === initialVersionId);
+              if (matchingVersion) {
+                versionToSelect = matchingVersion.version;
+              }
+            }
+          }
+        }
+        
+        setSelectedDraftId(draftToSelect.id);
+        setSelectedDraftVersion(versionToSelect);
       }
     } else {
       setDrafts([]);
