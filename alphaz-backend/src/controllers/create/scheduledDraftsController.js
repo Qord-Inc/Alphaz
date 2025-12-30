@@ -1,4 +1,42 @@
 const supabase = require('../../config/supabase');
+const OpenAI = require('openai');
+
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// POST /api/generate-title
+// Generate a title for a draft using OpenAI (cheap, fast model)
+async function generateTitle(req, res) {
+  try {
+    const { content } = req.body;
+
+    if (!content || content.trim().length === 0) {
+      return res.status(400).json({ error: 'Content is required' });
+    }
+
+    // Use gpt-4o-mini - cheap and fast
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a helpful assistant that generates short, descriptive titles for LinkedIn posts. Generate a concise title (3-7 words) that captures the main topic or theme of the post. Return only the title, nothing else.'
+        },
+        {
+          role: 'user',
+          content: `Generate a short title for this LinkedIn post:\n\n${content.substring(0, 500)}`
+        }
+      ],
+      max_tokens: 30,
+      temperature: 0.7
+    });
+
+    const title = completion.choices[0]?.message?.content?.trim() || '';
+    return res.json({ title });
+  } catch (err) {
+    console.error('Error generating title:', err);
+    return res.status(500).json({ error: 'Failed to generate title' });
+  }
+}
 
 // GET /api/scheduled-drafts/:clerkUserId
 // Get all scheduled drafts for a user (with optional filters)
@@ -260,5 +298,6 @@ module.exports = {
   createScheduledDraft,
   updateScheduledDraft,
   deleteScheduledDraft,
-  getDraftsByDate
+  getDraftsByDate,
+  generateTitle
 };
