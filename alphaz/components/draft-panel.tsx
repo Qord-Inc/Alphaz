@@ -3,7 +3,7 @@
 import { useState, memo, useCallback, useEffect } from 'react';
 import { LinkedInPostPreview, UploadedImage } from './linkedin-post-preview';
 import { MessageFeedback } from './message-feedback';
-import { ChevronLeft, ChevronRight, FileText, Trash2, Copy, Check, Loader2, Share2, X, Save, Calendar, Bookmark } from 'lucide-react';
+import { ChevronLeft, ChevronRight, FileText, Trash2, Copy, Check, Loader2, Linkedin, X, Save, Calendar, Bookmark } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -692,11 +692,11 @@ export const DraftPanel = memo(({
                       className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm ${
                         !displayContent || !onPostDraft || isStreaming || isPosting
                           ? 'bg-muted text-muted-foreground cursor-not-allowed'
-                          : 'bg-primary text-primary-foreground hover:bg-primary/90'
+                          : 'bg-[#0A66C2] text-white hover:bg-[#004182]'
                       }`}
                     >
-                      {isPosting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Share2 className="h-4 w-4" />}
-                      {isPosting ? 'Publishing...' : 'Publish'}
+                      {isPosting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Linkedin className="h-4 w-4" />}
+                      {isPosting ? 'Publishing...' : 'Publish on LinkedIn'}
                     </button>
                   </>
                 )}
@@ -741,11 +741,11 @@ export const DraftPanel = memo(({
                       className={`inline-flex items-center justify-center px-5 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm ${
                         !displayContent || !onPostDraft || isStreaming || isPosting
                           ? 'bg-muted text-muted-foreground cursor-not-allowed'
-                          : 'bg-primary text-primary-foreground hover:bg-primary/90'
+                          : 'bg-[#0A66C2] text-white hover:bg-[#004182]'
                       }`}
                     >
-                      {isPosting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Share2 className="h-4 w-4" />}
-                      <span className="ml-2">{isPosting ? 'Publishing...' : 'Publish'}</span>
+                      {isPosting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Linkedin className="h-4 w-4" />}
+                      <span className="ml-2">{isPosting ? 'Publishing...' : 'Publish on LinkedIn'}</span>
                     </button>
                   </div>
                 </div>
