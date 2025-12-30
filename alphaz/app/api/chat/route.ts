@@ -29,14 +29,20 @@ const EditResponseSchema = z.object({
 /**
  * Detect user intent using OpenAI function calling
  * Returns one of: edit, ideate, draft, feedback
+ * @param userMessage - The latest user message
+ * @param recentContext - Recent conversation for context (last few messages)
  */
-async function detectIntent(userMessage: string): Promise<string> {
+async function detectIntent(userMessage: string, recentContext?: string): Promise<string> {
   try {
+    const contextPrompt = recentContext 
+      ? `Recent conversation:\n${recentContext}\n\nLatest message: "${userMessage}"` 
+      : `User message: "${userMessage}"`;
+    
     const result = await generateObject({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       model: openai('gpt-4o-mini') as any, // Good balance of speed and accuracy for classification
       schema: IntentSchema,
-      prompt: `Classify the user's intent in one word. User message: "${userMessage}"`,
+      prompt: `Classify the user's intent in one word. ${contextPrompt}`,
       temperature: 0.1, // Low temperature for consistent classification
     });
     
@@ -106,9 +112,15 @@ export async function POST(request: Request) {
     // Get the latest user message for intent detection
     const latestUserMessage = messages.filter(m => m.role === 'user').pop()?.content || '';
     
+    // Build recent context (last 4 messages for context)
+    const recentMessages = messages.slice(-4);
+    const recentContext = recentMessages
+      .map(m => `${m.role === 'user' ? 'User' : 'AI'}: ${m.content.substring(0, 300)}${m.content.length > 300 ? '...' : ''}`)
+      .join('\n');
+    
     // Detect intent (fast: 0.1-0.5s)
     const startTime = Date.now();
-    const intent = await detectIntent(latestUserMessage);
+    const intent = await detectIntent(latestUserMessage, recentContext);
     const intentTime = Date.now() - startTime;
     
     console.log(`\n🎯 [INTENT DETECTED] ${intent.toUpperCase()}`);

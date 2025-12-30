@@ -4,6 +4,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { UserSync } from "@/components/user-sync";
 import { OrganizationProvider } from "@/contexts/OrganizationContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
+import { Toaster } from "@/components/ui/toaster";
 import "./globals.css";
 import { PostHogProvider } from '@/contexts/PostHogContext';
 
@@ -57,6 +58,7 @@ export default function RootLayout({
                 </OrganizationProvider>
               </UserSync>
             </PostHogProvider>
+            <Toaster />
           </ThemeProvider>
         </body>
       </html>

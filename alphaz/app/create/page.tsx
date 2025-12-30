@@ -29,9 +29,11 @@ import {
   User,
   Lock,
   Copy,
+  Check,
   FileText,
   Trash2,
-  Loader as LoaderIcon
+  Loader as LoaderIcon,
+  PenLine
 } from "lucide-react";
 
 // Feedback map type
@@ -50,6 +52,7 @@ const ChatMessage = memo(({
   feedback,
   onFeedbackSaved,
   dbMessageId,
+  onCreateDraftFromIdea,
 }: { 
   message: { 
     id: string; 
@@ -71,14 +74,19 @@ const ChatMessage = memo(({
   feedback?: { type: 'up' | 'down'; text?: string } | null;
   onFeedbackSaved?: (messageId: string, type: 'up' | 'down', text?: string) => void;
   dbMessageId?: string; // Database message ID (different from client ID)
+  onCreateDraftFromIdea?: (ideaText: string) => void;
 }) => {
   // Format timestamp as exact time (e.g., "2:34 PM")
   const formatTime = (date?: Date) => {
     if (!date) return '';
     return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
   };
+  const [copied, setCopied] = useState(false);
+  
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(message.content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }, [message.content]);
 
   const handleViewDraft = useCallback(() => {
@@ -193,45 +201,80 @@ const ChatMessage = memo(({
       </div>
     );
   }
-  
-  // Regular message (not draft/edit) - show full content in chat
-  return (
-    <div className="w-full flex justify-center">
-      <div className="max-w-4xl w-full px-6">
-        <div
-          className={`flex ${
-            message.role === "user" ? "justify-end" : "justify-start"
-          }`}
-        >
-          <div className="flex flex-col gap-1">
-            <div
-              className={`rounded-lg px-4 py-3 ${
-                message.role === "user"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-foreground"
-              }`}
-            >
-              <div className="text-sm">
-                {message.role === "assistant" ? (
-                  <MarkdownMessage content={message.content} />
-                ) : (
-                  <p className="whitespace-pre-wrap break-words">{message.content}</p>
-                )}
-              </div>
-              
-              {/* Message actions for regular assistant messages */}
-              {message.role === "assistant" && (
-                <div className="flex items-start justify-between gap-4 mt-3 pt-2 border-t border-border">
-                  <button
-                    onClick={handleCopy}
-                    className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-                    title="Copy message"
-                  >
-                    <Copy className="h-3 w-3" />
-                    Copy
-                  </button>
+
+  // Handle ideate intent - parse numbered ideas and show CTA for each
+  if (message.intent === 'ideate' && message.role === 'assistant') {
+    // Parse numbered ideas from content (format: "## 1. Title\nDescription..." with markdown headings)
+    const parseIdeas = (content: string) => {
+      const ideas: { number: number; text: string }[] = [];
+      // Split by markdown heading patterns (## 1., ## 2., etc.)
+      const parts = content.split(/(?=\n?#{1,3}\s*[0-9]+\.\s)/);
+      
+      parts.forEach((part) => {
+        // Match markdown heading with number (## 1., ### 2., etc.)
+        const match = part.match(/^\n?#{1,3}\s*([0-9]+)\.\s/);
+        if (match) {
+          const number = parseInt(match[1], 10);
+          const text = part.trim();
+          if (text.length > 0) {
+            ideas.push({ number, text });
+          }
+        }
+      });
+      
+      return ideas;
+    };
+
+    const ideas = parseIdeas(message.content);
+    
+    // If we found numbered ideas, render each with a CTA
+    if (ideas.length > 0) {
+      return (
+        <div className="w-full flex justify-center">
+          <div className="max-w-4xl w-full px-6">
+            <div className="flex justify-start w-full">
+              <div className="flex flex-col gap-1 w-full max-w-[85%]">
+                <div className="space-y-6">
+                  {ideas.map((idea) => (
+                    <div key={idea.number} className="text-foreground border-b border-border/20 pb-6 last:border-b-0 last:pb-0">
+                      <div className="text-[15px] leading-relaxed">
+                        <MarkdownMessage content={idea.text} />
+                      </div>
+                      {onCreateDraftFromIdea && (
+                        <button
+                          onClick={() => onCreateDraftFromIdea(idea.text)}
+                          className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950/30 hover:bg-orange-100 dark:hover:bg-orange-950/50 rounded-md transition-colors"
+                        >
+                          <PenLine className="h-3 w-3" />
+                          Create a draft
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                
+                {/* Message actions - icons below all ideas */}
+                <div className="flex items-center gap-3 mt-3">
+                  <div className="relative">
+                    <button
+                      onClick={handleCopy}
+                      className="text-muted-foreground hover:text-foreground transition-colors"
+                      title="Copy message"
+                    >
+                      {copied ? (
+                        <Check className="h-4 w-4 text-green-600 dark:text-green-400" />
+                      ) : (
+                        <Copy className="h-4 w-4" />
+                      )}
+                    </button>
+                    {copied && (
+                      <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-foreground text-background text-xs px-2 py-1 rounded whitespace-nowrap">
+                        Copied!
+                      </span>
+                    )}
+                  </div>
                   
-                  {/* Feedback thumbs - use dbMessageId when available (client ID won't work until refreshed) */}
+                  {/* Feedback thumbs */}
                   {threadId && userId && (dbMessageId || message.id) && (
                     <MessageFeedback
                       messageId={dbMessageId || message.id}
@@ -242,17 +285,91 @@ const ChatMessage = memo(({
                     />
                   )}
                 </div>
+                
+                {/* Timestamp */}
+                {message.timestamp && (
+                  <span className="text-[10px] text-muted-foreground text-left">
+                    {formatTime(message.timestamp)}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+  }
+  
+  // Regular message (not draft/edit) - show full content in chat
+  return (
+    <div className="w-full flex justify-center">
+      <div className="max-w-4xl w-full px-6">
+        <div
+          className={`flex ${
+            message.role === "user" ? "justify-end" : "justify-start"
+          }`}
+        >
+          {message.role === "user" ? (
+            // User message - rounded bubble with background
+            <div className="flex flex-col gap-1 items-end max-w-[85%]">
+              <div className="bg-[#F5F5F5] dark:bg-[#2A2A2A] text-foreground rounded-2xl px-5 py-3">
+                <p className="text-[15px] whitespace-pre-wrap break-words leading-relaxed">{message.content}</p>
+              </div>
+              {/* Timestamp */}
+              {message.timestamp && (
+                <span className="text-[10px] text-muted-foreground">
+                  {formatTime(message.timestamp)}
+                </span>
               )}
             </div>
-            {/* Timestamp */}
-            {message.timestamp && (
-              <span className={`text-[10px] text-muted-foreground ${
-                message.role === "user" ? "text-right" : "text-left"
-              }`}>
-                {formatTime(message.timestamp)}
-              </span>
-            )}
-          </div>
+          ) : (
+            // AI message - no bubble, just text with icons below
+            <div className="flex flex-col gap-1 max-w-[85%]">
+              <div className="text-[15px] leading-relaxed">
+                <MarkdownMessage content={message.content} />
+              </div>
+              
+              {/* Message actions - icons below text */}
+              <div className="flex items-center gap-3 mt-3">
+                <div className="relative">
+                  <button
+                    onClick={handleCopy}
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                    title="Copy message"
+                  >
+                    {copied ? (
+                      <Check className="h-4 w-4 text-green-600 dark:text-green-400" />
+                    ) : (
+                      <Copy className="h-4 w-4" />
+                    )}
+                  </button>
+                  {copied && (
+                    <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-foreground text-background text-xs px-2 py-1 rounded whitespace-nowrap">
+                      Copied!
+                    </span>
+                  )}
+                </div>
+                
+                {/* Feedback thumbs */}
+                {threadId && userId && (dbMessageId || message.id) && (
+                  <MessageFeedback
+                    messageId={dbMessageId || message.id}
+                    threadId={threadId}
+                    userId={userId}
+                    existingFeedback={feedback}
+                    onFeedbackSaved={onFeedbackSaved}
+                  />
+                )}
+              </div>
+              
+              {/* Timestamp */}
+              {message.timestamp && (
+                <span className="text-[10px] text-muted-foreground">
+                  {formatTime(message.timestamp)}
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -319,6 +436,7 @@ const MessageList = memo(({
   feedbackMap,
   onFeedbackSaved,
   clientToDbMessageIdMap,
+  onCreateDraftFromIdea,
 }: { 
   messages: any[]; 
   onViewDraft: (draftId: string, version?: number) => void;
@@ -329,6 +447,7 @@ const MessageList = memo(({
   feedbackMap?: FeedbackMap;
   onFeedbackSaved?: (messageId: string, type: 'up' | 'down', text?: string) => void;
   clientToDbMessageIdMap?: Record<string, string>;
+  onCreateDraftFromIdea?: (ideaText: string) => void;
 }) => {
   // Group messages by date
   const messageGroups = useMemo(() => {
@@ -380,6 +499,7 @@ const MessageList = memo(({
                   feedback={feedbackMap?.[feedbackKey]}
                   onFeedbackSaved={onFeedbackSaved}
                   dbMessageId={dbMsgId}
+                  onCreateDraftFromIdea={onCreateDraftFromIdea}
                 />
               );
             })}
@@ -900,6 +1020,15 @@ export default function Create({ threadId }: CreatePageProps = {}) {
     setSelectedDraftId(draftId);
     setSelectedDraftVersion(version ?? null);
   }, []);
+
+  /**
+   * Handle creating a draft from an ideation idea
+   * Sends a prompt to generate a draft based on the selected idea
+   */
+  const handleCreateDraftFromIdea = useCallback((ideaText: string) => {
+    const prompt = `Create a draft on Idea:\n${ideaText}`;
+    sendMessage(prompt);
+  }, [sendMessage]);
 
   /**
    * Handle inline edit of selected text from draft
@@ -1573,6 +1702,7 @@ export default function Create({ threadId }: CreatePageProps = {}) {
                       feedbackMap={feedbackMap}
                       onFeedbackSaved={handleFeedbackSaved}
                       clientToDbMessageIdMap={clientToDbMessageIdMap}
+                      onCreateDraftFromIdea={handleCreateDraftFromIdea}
                     />
 
                   {/* Loading indicator - only show when NOT streaming to draft panel */}

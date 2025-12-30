@@ -300,6 +300,18 @@ OUTPUT:
 Return only the list of ideas in the specified format.
 Do not add commentary or explanations.
 
+OUTPUT FORMAT :
+1. Working title / angle
+Core insight or point
+Why this resonates with the audience
+Personal brand alignment
+
+2. Working title / angle
+Core insight or point
+Why this resonates with the audience
+Personal brand alignment
+... (and so on for all ideas)
+
 
 `;
   } else if (intent === 'feedback') {
