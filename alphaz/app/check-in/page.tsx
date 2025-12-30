@@ -462,6 +462,31 @@ export default function CheckInPage() {
           </Card>
         )}
 
+        {/* Blocked state - limit exhausted */}
+        {blocked && nextAllowedAt && (
+          <Card className="p-4 border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="h-5 w-5" />
+                <span className="font-semibold">Daily Check-in Limit Reached</span>
+              </div>
+              <p className="text-sm ml-7">
+                You've used all your check-ins for today. Come back at{' '}
+                <span className="font-medium">
+                  {new Date(nextAllowedAt).toLocaleString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    hour12: true
+                  })}
+                </span>
+                {' '}for your next check-in.
+              </p>
+            </div>
+          </Card>
+        )}
+
         {/* Status message - hide when completed since results section shows the info */}
         {message && callStatus !== 'completed' && (
           <Card className={`p-4 ${
