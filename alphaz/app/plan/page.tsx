@@ -41,7 +41,7 @@ interface ScheduledDraft {
 export default function Plan() {
   const { user, loading: userLoading } = useUser();
   const { selectedOrganization, isPersonalProfile } = useOrganization();
-  const [view, setView] = useState<'list' | 'calendar'>('list');
+  const [view, setView] = useState<'list' | 'calendar'>('calendar');
   const [drafts, setDrafts] = useState<ScheduledDraft[]>([]);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
   const [loading, setLoading] = useState(true);
@@ -57,6 +57,13 @@ export default function Plan() {
   const [postStatus, setPostStatus] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
   const [isPublishDialogOpen, setIsPublishDialogOpen] = useState(false);
   const [draftToPublish, setDraftToPublish] = useState<ScheduledDraft | null>(null);
+  const [draggedDraft, setDraggedDraft] = useState<ScheduledDraft | null>(null);
+  const [isTimePickerOpen, setIsTimePickerOpen] = useState(false);
+  const [dropTargetDate, setDropTargetDate] = useState<Date | null>(null);
+  const [scheduleTime, setScheduleTime] = useState<Date | undefined>(undefined);
+  const [dragOverDate, setDragOverDate] = useState<string | null>(null);
+  const [dragPosition, setDragPosition] = useState<{ x: number; y: number } | null>(null);
+  const [isDragOverUnscheduled, setIsDragOverUnscheduled] = useState(false);
 
   useEffect(() => {
     if (userLoading) {
@@ -169,6 +176,146 @@ export default function Plan() {
     setIsPublishDialogOpen(false);
     await handlePostToLinkedIn(draftToPublish);
     setDraftToPublish(null);
+  };
+
+  // Track cursor position during drag using document-level event
+  useEffect(() => {
+    if (!draggedDraft) return;
+    
+    const handleDocumentDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      setDragPosition({ x: e.clientX, y: e.clientY });
+    };
+    
+    document.addEventListener('dragover', handleDocumentDragOver);
+    return () => document.removeEventListener('dragover', handleDocumentDragOver);
+  }, [draggedDraft]);
+
+  // Drag-and-drop handlers
+  const handleDragStart = (e: React.DragEvent, draft: ScheduledDraft) => {
+    setDraggedDraft(draft);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/html', draft.id);
+    
+    // Hide the default drag image by using a transparent 1x1 pixel
+    const emptyImg = new Image();
+    emptyImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    e.dataTransfer.setDragImage(emptyImg, 0, 0);
+    
+    // Set initial position for custom drag layer
+    setDragPosition({ x: e.clientX, y: e.clientY });
+  };
+
+  const handleDragEnd = () => {
+    setDragOverDate(null);
+    setDragPosition(null);
+    setIsDragOverUnscheduled(false);
+    if (!isTimePickerOpen) {
+      setDraggedDraft(null);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent, dateStr?: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dateStr) {
+      setDragOverDate(dateStr);
+    }
+  };
+
+  const handleDragLeave = () => {
+    setDragOverDate(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, date: Date) => {
+    e.preventDefault();
+    setDragOverDate(null);
+    if (!draggedDraft) return;
+    
+    // Set default time to 9 AM for the selected date
+    const defaultDateTime = new Date(date);
+    defaultDateTime.setHours(9, 0, 0, 0);
+    
+    setDropTargetDate(date);
+    setScheduleTime(defaultDateTime);
+    setIsTimePickerOpen(true);
+  };
+
+  const handleDropToUnschedule = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOverUnscheduled(false);
+    
+    if (!draggedDraft || draggedDraft.status !== 'scheduled') return;
+    
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/scheduled-drafts/${draggedDraft.id}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            content: draggedDraft.content,
+            title: draggedDraft.title,
+            scheduledAt: null,
+            notes: draggedDraft.notes,
+          }),
+        }
+      );
+
+      if (response.ok) {
+        await fetchDrafts();
+        setPostStatus({ type: 'success', message: 'Draft unscheduled' });
+        setTimeout(() => setPostStatus(null), 3000);
+      } else {
+        throw new Error('Failed to unschedule draft');
+      }
+    } catch (error) {
+      console.error('Error unscheduling draft:', error);
+      setPostStatus({ type: 'error', message: 'Failed to unschedule draft' });
+      setTimeout(() => setPostStatus(null), 3000);
+    } finally {
+      setDraggedDraft(null);
+      setDragPosition(null);
+    }
+  };
+
+  const handleConfirmSchedule = async () => {
+    if (!draggedDraft || !scheduleTime) return;
+    
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/scheduled-drafts/${draggedDraft.id}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            content: draggedDraft.content,
+            title: draggedDraft.title,
+            scheduledAt: scheduleTime.toISOString(),
+            notes: draggedDraft.notes,
+          }),
+        }
+      );
+
+      if (response.ok) {
+        await fetchDrafts();
+        setPostStatus({ type: 'success', message: 'Draft scheduled successfully' });
+        setTimeout(() => setPostStatus(null), 3000);
+      } else {
+        throw new Error('Failed to schedule draft');
+      }
+    } catch (error) {
+      console.error('Error scheduling draft:', error);
+      setPostStatus({ type: 'error', message: 'Failed to schedule draft' });
+      setTimeout(() => setPostStatus(null), 3000);
+    } finally {
+      setIsTimePickerOpen(false);
+      setDraggedDraft(null);
+      setDropTargetDate(null);
+      setScheduleTime(undefined);
+    }
   };
 
   const handlePostToLinkedIn = async (draft: ScheduledDraft) => {
@@ -400,13 +547,13 @@ export default function Plan() {
                 )}
               </div>
 
-              {/* Saved for Later */}
+              {/* Unscheduled Drafts */}
               <div>
-                <h2 className="text-xl font-semibold mb-4">Saved for Later ({savedDrafts.length})</h2>
+                <h2 className="text-xl font-semibold mb-4">Unscheduled Drafts ({savedDrafts.length})</h2>
                 {savedDrafts.length === 0 ? (
                   <Card>
                     <CardContent className="py-8 text-center text-muted-foreground">
-                      No saved drafts. Save drafts from the Create page.
+                      No unscheduled drafts. Save drafts from the Create page.
                     </CardContent>
                   </Card>
                 ) : (
@@ -533,15 +680,15 @@ export default function Plan() {
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
               {/* Calendar View - Bigger and Better */}
-              <div className="xl:col-span-2">
+              <div className="xl:col-span-3">
                 <Card>
-                  <CardContent className="p-6">
+                  <CardContent className="p-4">
                     {/* Custom Large Calendar */}
                     <div className="w-full">
                       {/* Month Navigation */}
-                      <div className="flex items-center justify-between mb-6">
+                      <div className="flex items-center justify-between mb-4">
                         <Button
                           variant="outline"
                           size="icon"
@@ -570,16 +717,16 @@ export default function Plan() {
                       </div>
                       
                       {/* Weekday Headers */}
-                      <div className="grid grid-cols-7 gap-1 mb-2">
+                      <div className="grid grid-cols-7 gap-px mb-1">
                         {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
-                          <div key={day} className="text-center text-sm font-medium text-muted-foreground py-2">
+                          <div key={day} className="text-center text-sm font-medium text-muted-foreground py-1">
                             {day}
                           </div>
                         ))}
                       </div>
                       
                       {/* Calendar Days */}
-                      <div className="grid grid-cols-7 gap-1">
+                      <div className="grid grid-cols-7 gap-px">
                         {(() => {
                           const currentMonth = selectedDate || new Date();
                           const year = currentMonth.getFullYear();
@@ -615,22 +762,29 @@ export default function Plan() {
                           return days.map(({ date, isCurrentMonth }, index) => {
                             const dayDrafts = getDraftsForDate(date);
                             const hasScheduled = dayDrafts.length > 0;
-                            const isSelected = selectedDate && format(date, 'yyyy-MM-dd') === format(selectedDate, 'yyyy-MM-dd');
-                            const isToday = format(date, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
+                            const dateStr = format(date, 'yyyy-MM-dd');
+                            const isSelected = selectedDate && dateStr === format(selectedDate, 'yyyy-MM-dd');
+                            const isToday = dateStr === format(new Date(), 'yyyy-MM-dd');
+                            const isDragOver = dragOverDate === dateStr && draggedDraft !== null;
                             
                             return (
                               <button
                                 key={index}
                                 onClick={() => setSelectedDate(date)}
+                                onDragOver={(e) => handleDragOver(e, dateStr)}
+                                onDragLeave={handleDragLeave}
+                                onDrop={(e) => handleDrop(e, date)}
                                 className={`
-                                  relative min-h-[80px] p-2 rounded-lg border transition-all
+                                  relative min-h-[72px] p-1.5 rounded-lg border-2 transition-all
                                   flex flex-col items-center
                                   ${!isCurrentMonth ? 'opacity-40' : ''}
-                                  ${isSelected 
-                                    ? 'bg-primary text-primary-foreground border-primary' 
-                                    : isToday 
-                                      ? 'bg-accent border-accent-foreground/20' 
-                                      : 'hover:bg-accent border-transparent hover:border-border'
+                                  ${isDragOver
+                                    ? 'bg-primary/20 border-primary border-dashed scale-105 shadow-lg'
+                                    : isSelected 
+                                      ? 'bg-primary text-primary-foreground border-primary' 
+                                      : isToday 
+                                        ? 'bg-accent border-accent-foreground/20' 
+                                        : 'hover:bg-accent border-transparent hover:border-border'
                                   }
                                 `}
                               >
@@ -663,30 +817,56 @@ export default function Plan() {
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Tip Banner Below Calendar */}
+                {savedDrafts.length > 0 && (
+                  <div className="mt-6 bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4">
+                    <div className="flex items-start gap-3">
+                      <span className="text-2xl">💡</span>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-yellow-800 dark:text-yellow-300">
+                          Tip: Drag drafts from the right sidebar and drop them onto any calendar date to schedule.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* Drafts for Selected Date */}
-              <div>
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">
-                      {selectedDate ? format(selectedDate, 'MMMM d, yyyy') : 'Select a date'}
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {selectedDate && (() => {
-                      const dayDrafts = getDraftsForDate(selectedDate);
-                      return dayDrafts.length === 0 ? (
-                        <p className="text-sm text-muted-foreground text-center py-8">
-                          No drafts scheduled for this date
-                        </p>
-                      ) : (
-                        <div className="space-y-3">
-                          {dayDrafts.map((draft) => (
-                            <div key={draft.id} className="border rounded-lg p-3 hover:bg-accent transition-colors">
+              {/* Right Sidebar: Drafts for Selected Date + Unscheduled Drafts */}
+              <div className="space-y-6">
+                {/* Drafts for Selected Date */}
+                {selectedDate && (() => {
+                  const dayDrafts = getDraftsForDate(selectedDate);
+                  return dayDrafts.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <Clock className="h-4 w-4 text-blue-500" />
+                          {format(selectedDate, 'MMM d, yyyy')}
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
+                          {dayDrafts.map((draft) => {
+                            const isBeingDragged = draggedDraft?.id === draft.id;
+                            return (
+                            <div
+                              key={draft.id}
+                              draggable
+                              onDragStart={(e) => handleDragStart(e, draft)}
+                              onDragEnd={handleDragEnd}
+                              className={`
+                                border rounded-lg p-3 transition-all cursor-grab active:cursor-grabbing
+                                ${isBeingDragged 
+                                  ? 'opacity-40 border-primary border-dashed bg-primary/5 scale-95' 
+                                  : 'hover:bg-accent hover:shadow-md'
+                                }
+                              `}
+                            >
                               <div className="flex items-start justify-between gap-2 mb-2">
-                                <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
-                                  {draft.scheduled_at && format(new Date(draft.scheduled_at), 'h:mm a')}
+                                <span className={`text-xs font-medium ${isBeingDragged ? 'text-primary' : 'text-blue-600 dark:text-blue-400'}`}>
+                                  {isBeingDragged ? '📅 Drop to reschedule...' : (draft.scheduled_at && format(new Date(draft.scheduled_at), 'h:mm a'))}
                                 </span>
                                 <div className="flex gap-1">
                                   <Button
@@ -702,11 +882,29 @@ export default function Plan() {
                                       <Linkedin className="h-3 w-3" />
                                     )}
                                   </Button>
+                                  {draft.thread_id && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 w-6 p-0"
+                                      onClick={() => {
+                                        const params = new URLSearchParams();
+                                        if (draft.draft_id) params.set('draftId', draft.draft_id);
+                                        if (draft.draft_version_id) params.set('versionId', draft.draft_version_id);
+                                        const queryString = params.toString();
+                                        window.location.href = `/create/${draft.thread_id}${queryString ? `?${queryString}` : ''}`;
+                                      }}
+                                      title="View thread & draft"
+                                    >
+                                      <ExternalLink className="h-3 w-3" />
+                                    </Button>
+                                  )}
                                   <Button
                                     variant="ghost"
                                     size="sm"
                                     className="h-6 w-6 p-0"
                                     onClick={() => handleEdit(draft)}
+                                    title="Edit"
                                   >
                                     <Edit2 className="h-3 w-3" />
                                   </Button>
@@ -715,8 +913,18 @@ export default function Plan() {
                                     size="sm"
                                     className="h-6 w-6 p-0"
                                     onClick={() => handleMarkAsPosted(draft.id)}
+                                    title="Mark as posted"
                                   >
                                     <CheckCircle2 className="h-3 w-3" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 w-6 p-0"
+                                    onClick={() => handleDelete(draft.id)}
+                                    title="Delete"
+                                  >
+                                    <Trash2 className="h-3 w-3" />
                                   </Button>
                                 </div>
                               </div>
@@ -727,10 +935,143 @@ export default function Plan() {
                                 {draft.content}
                               </p>
                             </div>
-                          ))}
+                          );
+                          })}
                         </div>
-                      );
-                    })()}
+                      </CardContent>
+                    </Card>
+                  );
+                })()}
+
+                {/* Unscheduled Drafts */}
+                <Card 
+                  className={`sticky top-6 transition-all ${
+                    isDragOverUnscheduled && draggedDraft?.status === 'scheduled'
+                      ? 'ring-2 ring-yellow-500 ring-dashed bg-yellow-500/10 scale-[1.02] shadow-lg'
+                      : ''
+                  }`}
+                  onDragOver={(e) => {
+                    if (draggedDraft?.status === 'scheduled') {
+                      e.preventDefault();
+                      setIsDragOverUnscheduled(true);
+                    }
+                  }}
+                  onDragLeave={() => setIsDragOverUnscheduled(false)}
+                  onDrop={handleDropToUnschedule}
+                >
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <span className="bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold">
+                        {savedDrafts.length}
+                      </span>
+                      {isDragOverUnscheduled && draggedDraft?.status === 'scheduled' 
+                        ? '📥 Drop to Unschedule' 
+                        : 'Unscheduled Drafts'}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {savedDrafts.length === 0 ? (
+                      <div className="text-center py-8">
+                        <p className="text-sm text-muted-foreground mb-2">
+                          💡 Tip: Drag drafts and drop them onto any calendar date to schedule.
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          No unscheduled drafts yet.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto pr-2">
+                        {savedDrafts.map((draft) => {
+                          const isBeingDragged = draggedDraft?.id === draft.id;
+                          return (
+                          <div
+                            key={draft.id}
+                            draggable
+                            onDragStart={(e) => handleDragStart(e, draft)}
+                            onDragEnd={handleDragEnd}
+                            className={`
+                              border rounded-lg p-3 transition-all cursor-grab active:cursor-grabbing
+                              ${isBeingDragged 
+                                ? 'opacity-40 border-primary border-dashed bg-primary/5 scale-95' 
+                                : 'hover:bg-accent hover:shadow-md'
+                              }
+                            `}
+                          >
+                            <div className="flex items-start justify-between gap-2 mb-2">
+                              <span className={`text-xs font-medium ${isBeingDragged ? 'text-primary' : 'text-yellow-600 dark:text-yellow-400'}`}>
+                                {isBeingDragged ? '📅 Drop on a date...' : 'Unscheduled'}
+                              </span>
+                              <div className="flex gap-1">
+                                <Button
+                                  size="sm"
+                                  className="h-6 px-2 text-xs bg-[#0A66C2] hover:bg-[#004182] text-white"
+                                  onClick={() => handlePublishClick(draft)}
+                                  disabled={isPosting === draft.id}
+                                  title="Publish on LinkedIn"
+                                >
+                                  {isPosting === draft.id ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Linkedin className="h-3 w-3" />
+                                  )}
+                                </Button>
+                                {draft.thread_id && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 w-6 p-0"
+                                    onClick={() => {
+                                      const params = new URLSearchParams();
+                                      if (draft.draft_id) params.set('draftId', draft.draft_id);
+                                      if (draft.draft_version_id) params.set('versionId', draft.draft_version_id);
+                                      const queryString = params.toString();
+                                      window.location.href = `/create/${draft.thread_id}${queryString ? `?${queryString}` : ''}`;
+                                    }}
+                                    title="View thread & draft"
+                                  >
+                                    <ExternalLink className="h-3 w-3" />
+                                  </Button>
+                                )}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 w-6 p-0"
+                                  onClick={() => handleEdit(draft)}
+                                  title="Edit"
+                                >
+                                  <Edit2 className="h-3 w-3" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 w-6 p-0"
+                                  onClick={() => handleMarkAsPosted(draft.id)}
+                                  title="Mark as posted"
+                                >
+                                  <CheckCircle2 className="h-3 w-3" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 w-6 p-0"
+                                  onClick={() => handleDelete(draft.id)}
+                                  title="Delete"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            </div>
+                            {draft.title && (
+                              <h4 className="font-medium text-sm mb-1">{draft.title}</h4>
+                            )}
+                            <p className="text-xs text-muted-foreground line-clamp-2">
+                              {draft.content}
+                            </p>
+                          </div>
+                        );
+                        })}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </div>
@@ -746,6 +1087,31 @@ export default function Plan() {
             'bg-blue-500 text-white'
           }`}>
             {postStatus.message}
+          </div>
+        )}
+
+        {/* Custom Drag Layer - Solid, no transparency */}
+        {draggedDraft && dragPosition && (
+          <div
+            className="fixed pointer-events-none z-[9999]"
+            style={{
+              left: dragPosition.x - 120,
+              top: dragPosition.y - 20,
+            }}
+          >
+            <div className="w-[240px] bg-background border-2 border-primary rounded-lg p-3 shadow-2xl rotate-2">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-xs font-medium text-primary">
+                  📅 {draggedDraft.status === 'scheduled' ? 'Rescheduling...' : 'Scheduling...'}
+                </span>
+              </div>
+              {draggedDraft.title && (
+                <h4 className="font-medium text-sm mb-1 truncate">{draggedDraft.title}</h4>
+              )}
+              <p className="text-xs text-muted-foreground line-clamp-2">
+                {draggedDraft.content}
+              </p>
+            </div>
           </div>
         )}
 
@@ -817,6 +1183,156 @@ export default function Plan() {
               </Button>
               <Button onClick={handleSaveEdit}>
                 Save Changes
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Time Picker Dialog for Drag-and-Drop Scheduling */}
+        <Dialog open={isTimePickerOpen} onOpenChange={setIsTimePickerOpen}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Clock className="h-5 w-5" />
+                {draggedDraft?.status === 'scheduled' ? 'Reschedule Draft' : 'Select Time'}
+              </DialogTitle>
+              <DialogDescription>
+                {dropTargetDate && (
+                  <span className="flex items-center gap-2 mt-1">
+                    <CalendarIcon className="h-4 w-4" />
+                    {draggedDraft?.status === 'scheduled' ? 'Move to ' : ''}{format(dropTargetDate, 'EEEE, MMMM d, yyyy')}
+                  </span>
+                )}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-6">
+              {/* Time Selector UI */}
+              <div className="flex items-center justify-center gap-2">
+                {/* Hour Selector */}
+                <select
+                  value={scheduleTime ? scheduleTime.getHours() % 12 || 12 : 9}
+                  onChange={(e) => {
+                    const newTime = new Date(scheduleTime || dropTargetDate || new Date());
+                    const hour = parseInt(e.target.value);
+                    const isPM = scheduleTime ? scheduleTime.getHours() >= 12 : false;
+                    newTime.setHours(isPM ? (hour === 12 ? 12 : hour + 12) : (hour === 12 ? 0 : hour));
+                    setScheduleTime(newTime);
+                  }}
+                  className="h-14 w-20 text-2xl font-semibold text-center bg-background border-2 border-input rounded-lg focus:border-primary focus:outline-none appearance-none cursor-pointer"
+                >
+                  {[12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((hour) => (
+                    <option key={hour} value={hour}>{hour.toString().padStart(2, '0')}</option>
+                  ))}
+                </select>
+                
+                <span className="text-3xl font-bold text-muted-foreground">:</span>
+                
+                {/* Minute Selector */}
+                <select
+                  value={scheduleTime ? scheduleTime.getMinutes() : 0}
+                  onChange={(e) => {
+                    const newTime = new Date(scheduleTime || dropTargetDate || new Date());
+                    newTime.setMinutes(parseInt(e.target.value));
+                    setScheduleTime(newTime);
+                  }}
+                  className="h-14 w-20 text-2xl font-semibold text-center bg-background border-2 border-input rounded-lg focus:border-primary focus:outline-none appearance-none cursor-pointer"
+                >
+                  {[0, 15, 30, 45].map((minute) => (
+                    <option key={minute} value={minute}>{minute.toString().padStart(2, '0')}</option>
+                  ))}
+                </select>
+                
+                {/* AM/PM Selector */}
+                <div className="flex flex-col gap-1 ml-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const newTime = new Date(scheduleTime || dropTargetDate || new Date());
+                      const currentHour = newTime.getHours();
+                      if (currentHour >= 12) {
+                        newTime.setHours(currentHour - 12);
+                      }
+                      setScheduleTime(newTime);
+                    }}
+                    className={`px-3 py-1.5 text-sm font-semibold rounded-md transition-colors ${
+                      scheduleTime && scheduleTime.getHours() < 12
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted hover:bg-accent'
+                    }`}
+                  >
+                    AM
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const newTime = new Date(scheduleTime || dropTargetDate || new Date());
+                      const currentHour = newTime.getHours();
+                      if (currentHour < 12) {
+                        newTime.setHours(currentHour + 12);
+                      }
+                      setScheduleTime(newTime);
+                    }}
+                    className={`px-3 py-1.5 text-sm font-semibold rounded-md transition-colors ${
+                      scheduleTime && scheduleTime.getHours() >= 12
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted hover:bg-accent'
+                    }`}
+                  >
+                    PM
+                  </button>
+                </div>
+              </div>
+              
+              {/* Quick Time Presets */}
+              <div className="flex flex-wrap gap-2 justify-center mt-6">
+                {[
+                  { label: '9:00 AM', hour: 9, minute: 0 },
+                  { label: '12:00 PM', hour: 12, minute: 0 },
+                  { label: '3:00 PM', hour: 15, minute: 0 },
+                  { label: '6:00 PM', hour: 18, minute: 0 },
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => {
+                      const newTime = new Date(dropTargetDate || new Date());
+                      newTime.setHours(preset.hour, preset.minute, 0, 0);
+                      setScheduleTime(newTime);
+                    }}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+                      scheduleTime && scheduleTime.getHours() === preset.hour && scheduleTime.getMinutes() === preset.minute
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'border-input hover:bg-accent'
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            
+            {/* Draft Preview */}
+            {draggedDraft && (
+              <div className="p-3 bg-muted rounded-md text-sm">
+                <p className="font-medium mb-1 truncate">{draggedDraft.title || 'Draft'}</p>
+                <p className="text-muted-foreground text-xs line-clamp-2">
+                  {draggedDraft.content}
+                </p>
+              </div>
+            )}
+            
+            <DialogFooter className="gap-2 sm:gap-0 mt-4">
+              <Button variant="outline" onClick={() => {
+                setIsTimePickerOpen(false);
+                setDraggedDraft(null);
+                setDropTargetDate(null);
+                setScheduleTime(undefined);
+              }}>
+                Cancel
+              </Button>
+              <Button onClick={handleConfirmSchedule}>
+                <Clock className="h-4 w-4 mr-2" />
+                {draggedDraft?.status === 'scheduled' ? 'Reschedule' : 'Schedule'} for {scheduleTime ? format(scheduleTime, 'h:mm a') : '9:00 AM'}
               </Button>
             </DialogFooter>
           </DialogContent>
