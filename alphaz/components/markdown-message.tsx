@@ -12,31 +12,31 @@ export const MarkdownMessage = memo(({ content }: MarkdownMessageProps) => {
     <ReactMarkdown
       components={{
         p: ({ node, ...props }) => (
-          <p className="mb-3 last:mb-0" {...props} />
+          <p className="mb-2.5 last:mb-0 leading-relaxed text-[15px] text-foreground" {...props} />
         ),
         strong: ({ node, ...props }) => (
-          <strong className="font-bold" {...props} />
+          <strong className="font-semibold text-foreground" {...props} />
         ),
         em: ({ node, ...props }) => (
-          <em className="italic" {...props} />
+          <em className="italic text-foreground/90" {...props} />
         ),
         h1: ({ node, ...props }) => (
-          <h1 className="text-xl font-bold mb-3 mt-3" {...props} />
+          <h1 className="text-lg font-bold mb-3 mt-0 text-foreground" {...props} />
         ),
         h2: ({ node, ...props }) => (
-          <h2 className="text-lg font-bold mb-2 mt-3" {...props} />
+          <h2 className="text-base font-bold mb-3 mt-0 text-foreground" {...props} />
         ),
         h3: ({ node, ...props }) => (
-          <h3 className="text-base font-bold mb-2 mt-2" {...props} />
+          <h3 className="text-sm font-semibold mb-2 mt-2 text-foreground" {...props} />
         ),
         ul: ({ node, ...props }) => (
-          <ul className="list-disc list-inside mb-3 space-y-1" {...props} />
+          <ul className="list-disc ml-4 mb-3 space-y-1.5 text-sm" {...props} />
         ),
         ol: ({ node, ...props }) => (
-          <ol className="list-decimal list-inside mb-3 space-y-1" {...props} />
+          <ol className="list-decimal ml-4 mb-3 space-y-1.5 text-sm" {...props} />
         ),
         li: ({ node, ...props }) => (
-          <li className="ml-2" {...props} />
+          <li className="text-foreground/90 leading-relaxed pl-1" {...props} />
         ),
         code: ({ node, className, ...props }) => {
           const isInline = !className?.includes('language-');
@@ -54,6 +54,9 @@ export const MarkdownMessage = memo(({ content }: MarkdownMessageProps) => {
         ),
         a: ({ node, ...props }) => (
           <a className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer" {...props} />
+        ),
+        hr: ({ node, ...props }) => (
+          <hr className="my-4 border-t border-border/50" {...props} />
         ),
       }}
     >

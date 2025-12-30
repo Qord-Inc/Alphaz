@@ -193,7 +193,7 @@ async function textToSpeech(req, res) {
       model: 'gpt-4o-mini-tts-2025-12-15',
       voice: 'alloy',
       input: text,
-      speed: 1.0
+      speed: 2.0
     });
 
     const buffer = Buffer.from(await mp3.arrayBuffer());
