@@ -5,8 +5,12 @@ const {
   createScheduledDraft,
   updateScheduledDraft,
   deleteScheduledDraft,
-  getDraftsByDate
+  getDraftsByDate,
+  generateTitle
 } = require('../../controllers/create/scheduledDraftsController');
+
+// Generate title for a draft using AI
+router.post('/generate-title', generateTitle);
 
 // Get all scheduled drafts for a user
 router.get('/scheduled-drafts/:clerkUserId', getScheduledDrafts);

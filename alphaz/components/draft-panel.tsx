@@ -119,6 +119,7 @@ export const DraftPanel = memo(({
     notes: ''
   });
   const [isSavingToPlan, setIsSavingToPlan] = useState(false);
+  const [isGeneratingTitle, setIsGeneratingTitle] = useState(false);
   
   // Image upload state - keyed by draft ID
   const [draftImages, setDraftImages] = useState<Record<string, UploadedImage[]>>({});
@@ -212,14 +213,45 @@ export const DraftPanel = memo(({
   }, []);
   
   // Save to plan handlers
-  const handleSaveToPlanClick = useCallback(() => {
+  const handleSaveToPlanClick = useCallback(async () => {
     if (!displayContent) return;
+    
+    // Check if draft has a meaningful title (not generic defaults)
+    const genericTitles = ['Draft', 'Updated Draft', 'Created Draft', ''];
+    const hasCustomTitle = selectedDraft?.title && !genericTitles.includes(selectedDraft.title);
+    
+    // Set initial state and open dialog
     setSaveToPlanForm({
-      title: selectedDraft?.title || '',
+      title: hasCustomTitle ? (selectedDraft?.title || '') : '',
       scheduledAt: undefined,
       notes: ''
     });
     setShowSaveToPlanDialog(true);
+    
+    // Auto-generate title if no custom title exists
+    if (!hasCustomTitle) {
+      setIsGeneratingTitle(true);
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+        const response = await fetch(`${apiUrl}/api/generate-title`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ content: displayContent })
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.title) {
+            setSaveToPlanForm(prev => ({ ...prev, title: data.title }));
+          }
+        }
+      } catch (error) {
+        console.error('Error generating title:', error);
+      } finally {
+        setIsGeneratingTitle(false);
+      }
+    }
   }, [displayContent, selectedDraft]);
 
   const handleSaveToPlan = useCallback(async () => {
@@ -763,13 +795,25 @@ export const DraftPanel = memo(({
                 </DialogHeader>
                 <div className="space-y-4">
                   <div>
-                    <Label htmlFor="plan-title">Title (optional)</Label>
-                    <Input
-                      id="plan-title"
-                      value={saveToPlanForm.title}
-                      onChange={(e) => setSaveToPlanForm({ ...saveToPlanForm, title: e.target.value })}
-                      placeholder="Give this draft a title..."
-                    />
+                    <Label htmlFor="plan-title">Title</Label>
+                    <div className="relative">
+                      <Input
+                        id="plan-title"
+                        value={saveToPlanForm.title}
+                        onChange={(e) => setSaveToPlanForm({ ...saveToPlanForm, title: e.target.value })}
+                        placeholder={isGeneratingTitle ? "Generating title..." : "Give this draft a title..."}
+                        disabled={isGeneratingTitle}
+                        className={isGeneratingTitle ? "pr-10" : ""}
+                      />
+                      {isGeneratingTitle && (
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Auto-generated title — feel free to edit
+                    </p>
                   </div>
                   <div>
                     <Label htmlFor="plan-scheduledAt">
