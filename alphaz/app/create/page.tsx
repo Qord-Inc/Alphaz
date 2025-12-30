@@ -1701,17 +1701,33 @@ export default function Create({ threadId, initialDraftId, initialVersionId }: C
       // Clear the stored prompt immediately to prevent re-triggering
       sessionStorage.removeItem('checkin_draft_prompt');
       
-      // Set the input value and trigger send after a small delay
-      // to ensure the component is fully mounted
-      setInputValue(checkinPrompt);
+      // Create a new thread, persist message, and send to AI
+      const processCheckinDraft = async () => {
+        // Create a new thread with title from the prompt
+        const threadTitle = checkinPrompt.substring(0, 50) + (checkinPrompt.length > 50 ? '...' : '');
+        const thread = await newThread(threadTitle);
+        
+        if (thread) {
+          activeThreadIdRef.current = thread.id;
+          // Persist user message to the new thread
+          appendMessage('user', checkinPrompt, undefined, thread.id).catch(err => 
+            console.error('Failed to persist user message:', err)
+          );
+          // Update URL without causing navigation/reload
+          window.history.replaceState(null, '', `/create/${thread.id}`);
+          
+          // Trigger transition animation
+          setIsTransitioning(true);
+          setTimeout(() => setIsTransitioning(false), 600);
+          
+          // Send message to AI
+          sendMessage(checkinPrompt);
+        }
+      };
       
-      // Use setTimeout to allow state to update before sending
-      setTimeout(() => {
-        sendMessage(checkinPrompt);
-        setInputValue(''); // Clear input after sending
-      }, 100);
+      processCheckinDraft();
     }
-  }, [currentThread, isLoading, clerkUser?.id, sendMessage, isPersonalProfile, personalContext, isLoadingPersonalContext]);
+  }, [currentThread, isLoading, clerkUser?.id, sendMessage, isPersonalProfile, personalContext, isLoadingPersonalContext, newThread, appendMessage]);
 
   return (
     <AppLayout>
