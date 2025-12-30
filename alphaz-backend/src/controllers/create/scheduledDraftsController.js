@@ -101,6 +101,7 @@ async function createScheduledDraft(req, res) {
 // PATCH /api/scheduled-drafts/:id
 // Update a scheduled draft
 // Body: { content?, title?, scheduledAt?, notes?, status? }
+// If content is updated and draft_version_id exists, also updates the draft version content
 async function updateScheduledDraft(req, res) {
   try {
     const { id } = req.params;
@@ -108,6 +109,18 @@ async function updateScheduledDraft(req, res) {
 
     if (!id) {
       return res.status(400).json({ error: 'Missing draft id' });
+    }
+
+    // First, get the current scheduled draft to check for draft_version_id
+    const { data: currentDraft, error: fetchError } = await supabase
+      .from('scheduled_drafts')
+      .select('draft_version_id')
+      .eq('id', id)
+      .single();
+
+    if (fetchError) {
+      console.error('Error fetching scheduled draft:', fetchError);
+      return res.status(500).json({ error: 'Failed to fetch scheduled draft' });
     }
 
     const updates = {};
@@ -134,6 +147,7 @@ async function updateScheduledDraft(req, res) {
       return res.status(400).json({ error: 'No fields to update' });
     }
 
+    // Update the scheduled draft
     const { data, error } = await supabase
       .from('scheduled_drafts')
       .update(updates)
@@ -144,6 +158,20 @@ async function updateScheduledDraft(req, res) {
     if (error) {
       console.error('Error updating scheduled draft:', error);
       return res.status(500).json({ error: 'Failed to update scheduled draft' });
+    }
+
+    // If content was updated and draft_version_id exists, also update the draft version
+    if (content !== undefined && currentDraft?.draft_version_id) {
+      const { error: versionError } = await supabase
+        .from('chat_thread_draft_versions')
+        .update({ content })
+        .eq('id', currentDraft.draft_version_id);
+
+      if (versionError) {
+        console.error('Error updating draft version (non-critical):', versionError);
+        // Don't fail the request, just log the error
+        // The scheduled_draft content is already updated
+      }
     }
 
     return res.json({ draft: data });

@@ -3,7 +3,7 @@
 import { AppLayout } from "@/components/app-layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Calendar as CalendarIcon, List, Clock, CheckCircle2, Trash2, Edit2, ExternalLink, ChevronLeft, ChevronRight } from "lucide-react";
+import { Calendar as CalendarIcon, List, Clock, CheckCircle2, Trash2, Edit2, ExternalLink, ChevronLeft, ChevronRight, Linkedin, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useUser } from "@/hooks/useUser";
 import { useOrganization } from "@/contexts/OrganizationContext";
@@ -48,10 +48,15 @@ export default function Plan() {
   const [selectedDraft, setSelectedDraft] = useState<ScheduledDraft | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editForm, setEditForm] = useState({
+    content: '',
     title: '',
     scheduledAt: undefined as Date | undefined,
     notes: ''
   });
+  const [isPosting, setIsPosting] = useState<string | null>(null); // draft id being posted
+  const [postStatus, setPostStatus] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+  const [isPublishDialogOpen, setIsPublishDialogOpen] = useState(false);
+  const [draftToPublish, setDraftToPublish] = useState<ScheduledDraft | null>(null);
 
   useEffect(() => {
     if (userLoading) {
@@ -146,11 +151,72 @@ export default function Plan() {
   const handleEdit = (draft: ScheduledDraft) => {
     setSelectedDraft(draft);
     setEditForm({
+      content: draft.content,
       title: draft.title || '',
       scheduledAt: draft.scheduled_at ? new Date(draft.scheduled_at) : undefined,
       notes: draft.notes || ''
     });
     setIsEditDialogOpen(true);
+  };
+
+  const handlePublishClick = (draft: ScheduledDraft) => {
+    setDraftToPublish(draft);
+    setIsPublishDialogOpen(true);
+  };
+
+  const handleConfirmPublish = async () => {
+    if (!draftToPublish) return;
+    setIsPublishDialogOpen(false);
+    await handlePostToLinkedIn(draftToPublish);
+    setDraftToPublish(null);
+  };
+
+  const handlePostToLinkedIn = async (draft: ScheduledDraft) => {
+    if (!draft.content) return;
+    if (!user?.clerk_user_id) {
+      setPostStatus({ type: 'error', message: 'User not loaded yet.' });
+      return;
+    }
+
+    try {
+      setIsPosting(draft.id);
+      setPostStatus({ type: 'info', message: 'Publishing to LinkedIn...' });
+      
+      const endpoint = isPersonalProfile 
+        ? `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/linkedin/post/personal`
+        : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/linkedin/post`;
+      
+      const payload = isPersonalProfile
+        ? { clerkUserId: user.clerk_user_id, content: draft.content }
+        : { clerkUserId: user.clerk_user_id, organizationId: selectedOrganization?.id, content: draft.content };
+      
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(payload),
+      });
+      
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail = typeof data?.details === 'string' ? data.details : (data?.details?.message || data?.details?.messageText);
+        const msg = data?.error || detail || 'Failed to post to LinkedIn';
+        throw new Error(msg);
+      }
+
+      // Mark as posted in the database
+      await handleMarkAsPosted(draft.id);
+      setPostStatus({ type: 'success', message: 'Published to LinkedIn!' });
+      
+      // Clear status after 3 seconds
+      setTimeout(() => setPostStatus(null), 3000);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to publish to LinkedIn';
+      setPostStatus({ type: 'error', message: msg });
+      setTimeout(() => setPostStatus(null), 5000);
+    } finally {
+      setIsPosting(null);
+    }
   };
 
   const handleSaveEdit = async () => {
@@ -164,6 +230,7 @@ export default function Plan() {
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({
+            content: editForm.content,
             title: editForm.title || null,
             scheduledAt: editForm.scheduledAt?.toISOString() || null,
             notes: editForm.notes || null
@@ -270,6 +337,20 @@ export default function Plan() {
                               )}
                             </div>
                             <div className="flex items-center gap-1 flex-shrink-0">
+                              <Button
+                                size="sm"
+                                onClick={() => handlePublishClick(draft)}
+                                disabled={isPosting === draft.id}
+                                title="Publish on LinkedIn"
+                                className="mr-2 bg-[#0A66C2] hover:bg-[#004182] text-white"
+                              >
+                                {isPosting === draft.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Linkedin className="h-4 w-4" />
+                                )}
+                                <span className="ml-1 hidden sm:inline">Publish</span>
+                              </Button>
                               {draft.thread_id && (
                                 <Button
                                   variant="ghost"
@@ -343,6 +424,20 @@ export default function Plan() {
                               </p>
                             </div>
                             <div className="flex items-center gap-1 flex-shrink-0">
+                              <Button
+                                size="sm"
+                                onClick={() => handlePublishClick(draft)}
+                                disabled={isPosting === draft.id}
+                                title="Publish on LinkedIn"
+                                className="mr-2 bg-[#0A66C2] hover:bg-[#004182] text-white"
+                              >
+                                {isPosting === draft.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Linkedin className="h-4 w-4" />
+                                )}
+                                <span className="ml-1 hidden sm:inline">Publish</span>
+                              </Button>
                               {draft.thread_id && (
                                 <Button
                                   variant="ghost"
@@ -583,6 +678,19 @@ export default function Plan() {
                                 </span>
                                 <div className="flex gap-1">
                                   <Button
+                                    size="sm"
+                                    className="h-6 px-2 text-xs bg-[#0A66C2] hover:bg-[#004182] text-white"
+                                    onClick={() => handlePublishClick(draft)}
+                                    disabled={isPosting === draft.id}
+                                    title="Publish on LinkedIn"
+                                  >
+                                    {isPosting === draft.id ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      <Linkedin className="h-3 w-3" />
+                                    )}
+                                  </Button>
+                                  <Button
                                     variant="ghost"
                                     size="sm"
                                     className="h-6 w-6 p-0"
@@ -618,40 +726,67 @@ export default function Plan() {
           )}
         </main>
 
+        {/* Post Status Toast */}
+        {postStatus && (
+          <div className={`fixed bottom-4 right-4 z-50 p-4 rounded-lg shadow-lg ${
+            postStatus.type === 'success' ? 'bg-green-500 text-white' :
+            postStatus.type === 'error' ? 'bg-red-500 text-white' :
+            'bg-blue-500 text-white'
+          }`}>
+            {postStatus.message}
+          </div>
+        )}
+
         {/* Edit Dialog */}
         <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-          <DialogContent className="max-w-2xl">
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Edit Draft</DialogTitle>
               <DialogDescription>
-                Update the schedule, title, or notes for this draft
+                Edit the content, schedule, title, or notes for this draft
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
               <div>
-                <Label htmlFor="title">Title (optional)</Label>
-                <Input
-                  id="title"
-                  value={editForm.title}
-                  onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
-                  placeholder="Add a title..."
-                />
-              </div>
-              <div>
-                <Label htmlFor="scheduledAt">
-                  <div className="flex items-center gap-2 mb-2">
-                    <CalendarIcon className="h-4 w-4" />
-                    Scheduled Date & Time
-                  </div>
-                </Label>
-                <DateTimePicker
-                  date={editForm.scheduledAt}
-                  setDate={(date) => setEditForm({ ...editForm, scheduledAt: date })}
-                  placeholder="Save for later (no specific date)"
+                <Label htmlFor="content">Content</Label>
+                <Textarea
+                  id="content"
+                  value={editForm.content}
+                  onChange={(e) => setEditForm({ ...editForm, content: e.target.value })}
+                  placeholder="Write your post content..."
+                  rows={8}
+                  className="font-mono text-sm"
                 />
                 <p className="text-xs text-muted-foreground mt-1">
-                  Leave empty to save for later without a specific date
+                  {editForm.content.length} characters
+                  {selectedDraft?.draft_version_id && (
+                    <span className="ml-2">• Changes will also update the original draft version</span>
+                  )}
                 </p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="title">Title (optional)</Label>
+                  <Input
+                    id="title"
+                    value={editForm.title}
+                    onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                    placeholder="Add a title..."
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="scheduledAt">
+                    <div className="flex items-center gap-2 mb-2">
+                      <CalendarIcon className="h-4 w-4" />
+                      Scheduled Date & Time
+                    </div>
+                  </Label>
+                  <DateTimePicker
+                    date={editForm.scheduledAt}
+                    setDate={(date) => setEditForm({ ...editForm, scheduledAt: date })}
+                    placeholder="Save for later (no date)"
+                  />
+                </div>
               </div>
               <div>
                 <Label htmlFor="notes">Notes (optional)</Label>
@@ -660,24 +795,53 @@ export default function Plan() {
                   value={editForm.notes}
                   onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
                   placeholder="Add notes or reminders..."
-                  rows={3}
+                  rows={2}
                 />
               </div>
-              {selectedDraft && (
-                <div>
-                  <Label>Content Preview</Label>
-                  <div className="mt-2 p-3 bg-muted rounded-md text-sm max-h-32 overflow-auto">
-                    {selectedDraft.content}
-                  </div>
-                </div>
-              )}
             </div>
-            <DialogFooter>
+            <DialogFooter className="gap-2 sm:gap-0">
               <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
                 Cancel
               </Button>
               <Button onClick={handleSaveEdit}>
                 Save Changes
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Publish Confirmation Dialog */}
+        <Dialog open={isPublishDialogOpen} onOpenChange={setIsPublishDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Linkedin className="h-5 w-5 text-[#0A66C2]" />
+                Publish to LinkedIn
+              </DialogTitle>
+              <DialogDescription>
+                Are you sure you want to publish this post to LinkedIn? This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            {draftToPublish && (
+              <div className="my-4 p-3 bg-muted rounded-md text-sm max-h-40 overflow-auto">
+                {draftToPublish.content.length > 300 
+                  ? `${draftToPublish.content.substring(0, 300)}...` 
+                  : draftToPublish.content}
+              </div>
+            )}
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => {
+                setIsPublishDialogOpen(false);
+                setDraftToPublish(null);
+              }}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleConfirmPublish}
+                className="bg-[#0A66C2] hover:bg-[#004182] text-white"
+              >
+                <Linkedin className="h-4 w-4 mr-2" />
+                Publish Now
               </Button>
             </DialogFooter>
           </DialogContent>
