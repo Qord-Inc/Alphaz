@@ -659,6 +659,34 @@ export default function Create({ threadId, initialDraftId, initialVersionId }: C
     }
   }, [threadId, clerkUser?.id, isLoadingThreads, currentThread?.id, selectThread]);
 
+  // Track previous organization to detect profile switches
+  const prevOrganizationRef = useRef<string | null | undefined>(undefined);
+  
+  // Navigate away from thread when profile/organization changes
+  useEffect(() => {
+    // Build a key that uniquely identifies the current profile context
+    const currentOrgKey = isPersonalProfile ? 'personal' : (selectedOrganization?.id || null);
+    
+    // Skip the first render (initialization)
+    if (prevOrganizationRef.current === undefined) {
+      prevOrganizationRef.current = currentOrgKey;
+      return;
+    }
+    
+    // If organization/profile changed and we're on a thread, navigate to base create page
+    if (prevOrganizationRef.current !== currentOrgKey && threadId) {
+      console.log('🔄 Profile switched, navigating away from thread:', { 
+        from: prevOrganizationRef.current, 
+        to: currentOrgKey,
+        threadId 
+      });
+      router.push('/create');
+    }
+    
+    // Update the ref for next comparison
+    prevOrganizationRef.current = currentOrgKey;
+  }, [isPersonalProfile, selectedOrganization?.id, threadId, router]);
+
   // Helpers for CTA titles
   const genericTitles = useMemo(() => [
     'Written the LinkedIn post',
