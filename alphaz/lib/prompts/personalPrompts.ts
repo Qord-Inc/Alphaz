@@ -349,7 +349,7 @@ Do not add commentary or explanations.
 
 OUTPUT FORMAT:
 
-## 1. Working title / angle
+## 1. {Working title / angle}
 
 **Core insight or point:**  
 Your explanation here
@@ -362,7 +362,7 @@ Your explanation here
 
 ---
 
-## 2. Working title / angle
+## 2. {Working title / angle}
 
 **Core insight or point:**  
 Your explanation here

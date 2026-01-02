@@ -17,7 +17,8 @@ import {
   CheckCircle2,
   AlertCircle,
   Volume2,
-  PenLine
+  PenLine,
+  ChevronDown
 } from "lucide-react"
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"
@@ -72,6 +73,7 @@ export default function CheckInPage() {
   const [showHistoryModal, setShowHistoryModal] = useState(false)
   const [selectedHistory, setSelectedHistory] = useState<CheckinRecord | null>(null)
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([])
+  const [expandedInsights, setExpandedInsights] = useState<Set<number>>(new Set())
   
   // WebRTC refs
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null)
@@ -80,6 +82,7 @@ export default function CheckInPage() {
   const localStreamRef = useRef<MediaStream | null>(null)
   const callStartRef = useRef<number | null>(null)
   const autoEndTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const fiveMinuteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const transcriptSeqRef = useRef<number>(0)
   // Track conversation item order from OpenAI Realtime events
   const itemOrderRef = useRef<string[]>([])
@@ -135,6 +138,10 @@ export default function CheckInPage() {
     if (autoEndTimeoutRef.current) {
       clearTimeout(autoEndTimeoutRef.current)
       autoEndTimeoutRef.current = null
+    }
+    if (fiveMinuteTimerRef.current) {
+      clearTimeout(fiveMinuteTimerRef.current)
+      fiveMinuteTimerRef.current = null
     }
     if (dataChannelRef.current) {
       dataChannelRef.current.close()
@@ -390,6 +397,14 @@ export default function CheckInPage() {
       await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp })
 
       setCallStatus('active')
+      callStartRef.current = Date.now()
+
+      // Set strict 5-minute timer
+      fiveMinuteTimerRef.current = setTimeout(() => {
+        if (callStatus === 'active') {
+          endCall()
+        }
+      }, 5 * 60 * 1000) // 5 minutes
 
     } catch (err: any) {
       console.error('Call error:', err)
@@ -438,15 +453,15 @@ export default function CheckInPage() {
           <div className="flex flex-col gap-1">
             <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Voice Check-in</h1>
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              Quick 4-minute chat to capture 3 key insights and 3 LinkedIn ideas
+              Quick 5-minute chat to capture 3 key insights and 3 LinkedIn ideas
             </p>
           </div>
           {history.length > 0 && (
             <button
               onClick={() => setShowHistoryModal(true)}
-              className="ml-auto inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-200 text-xs border border-blue-200 dark:border-blue-800"
+              className="ml-auto inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[var(--secondary-accent)] text-[var(--secondary-accent-foreground)] text-xs border border-[var(--secondary-accent-foreground)]"
             >
-              <span className="inline-block h-2 w-2 rounded-full bg-blue-500" />
+              <span className="inline-block h-2 w-2 rounded-full bg-[var(--secondary-accent-foreground)]" />
               {history.length} previous check-in{history.length > 1 ? 's' : ''}
             </button>
           )}
@@ -513,13 +528,13 @@ export default function CheckInPage() {
                   ? 'bg-orange-100 dark:bg-orange-900/40 ring-4 ring-orange-400 dark:ring-orange-500 ring-opacity-50 animate-pulse'
                   : 'bg-orange-50 dark:bg-orange-900/20 ring-2 ring-orange-300 dark:ring-orange-700'
                 : callStatus === 'connecting'
-                ? 'bg-blue-50 dark:bg-blue-900/20 ring-2 ring-blue-300 dark:ring-blue-700 animate-pulse'
+                ? 'bg-[var(--secondary-accent)] ring-2 ring-[var(--secondary-accent-foreground)] animate-pulse'
                 : 'bg-gray-100 dark:bg-gray-800 ring-2 ring-gray-200 dark:ring-gray-700'
             }`}>
               {callStatus === 'active' ? (
                 <Volume2 className={`h-16 w-16 text-orange-500 dark:text-orange-400 ${isAISpeaking ? 'animate-pulse' : ''}`} />
               ) : callStatus === 'connecting' ? (
-                <Loader2 className="h-16 w-16 text-blue-500 dark:text-blue-400 animate-spin" />
+                <Loader2 className="h-16 w-16 text-[var(--secondary-accent-foreground)] animate-spin" />
               ) : (
                 <Mic className="h-16 w-16 text-gray-400 dark:text-gray-500" />
               )}
@@ -547,7 +562,7 @@ export default function CheckInPage() {
                   size="lg"
                   onClick={startCall}
                   disabled={!canStartCall}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-6 text-lg rounded-full"
+                  className="bg-orange-500 hover:bg-orange-600 text-white px-8 py-6 text-lg rounded-full"
                 >
                   <Phone className="h-6 w-6 mr-2" />
                   Start Check-in Call
@@ -558,7 +573,7 @@ export default function CheckInPage() {
                 <Button
                   size="lg"
                   disabled
-                  className="bg-blue-600 text-white px-8 py-6 text-lg rounded-full opacity-75"
+                  className="bg-[var(--secondary-accent)] text-[var(--secondary-accent-foreground)] px-8 py-6 text-lg rounded-full opacity-75"
                 >
                   <Loader2 className="h-6 w-6 mr-2 animate-spin" />
                   Connecting...
@@ -628,73 +643,90 @@ export default function CheckInPage() {
 
           {/* Results */}
           {record && callStatus === 'completed' && (
-            <div className="space-y-4">
-              {/* Compact header with duration */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="h-5 w-5 text-orange-500" />
-                  <span className="font-medium text-gray-900 dark:text-white">Check-in Complete</span>
+            <div className="space-y-6">
+              {/* Key Insights */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-2xl">🔑</span>
+                  <h3 className="text-base font-semibold text-gray-900 dark:text-white">Key Insights</h3>
                 </div>
-                {record.duration_seconds && (
-                  <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-xs text-gray-600 dark:text-gray-400">
-                    <span>⏱</span>
-                    <span>{Math.floor(record.duration_seconds / 60)}:{String(record.duration_seconds % 60).padStart(2, '0')}</span>
-                  </div>
-                )}
-              </div>
-
-              <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3">
-                <div className="flex items-center gap-2 mb-2">
-                  <Sparkles className="h-4 w-4 text-orange-500" />
-                  <span className="text-sm font-semibold text-gray-900 dark:text-white">Key Insights</span>
-                </div>
-                <div className="space-y-2">
-                  {record.key_insights?.map((item, idx) => (
-                    <div key={idx} className="rounded-md bg-white dark:bg-gray-800 p-2 border border-gray-200 dark:border-gray-700">
-                      <p className="text-sm font-semibold text-gray-900 dark:text-white">{item.title}</p>
-                      {item.summary && <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{item.summary}</p>}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-orange-200 dark:border-orange-800/50 bg-orange-50 dark:bg-orange-900/10 p-3">
-                <div className="flex items-center gap-2 mb-2">
-                  <Sparkles className="h-4 w-4 text-orange-500" />
-                  <span className="text-sm font-semibold text-gray-900 dark:text-white">Content Ideas</span>
-                </div>
-                <div className="space-y-2">
-                  {record.content_ideas?.map((item, idx) => (
-                    <div key={idx} className="rounded-md bg-white dark:bg-gray-800 p-2 border border-orange-200 dark:border-orange-800/50">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1">
-                          <p className="text-sm font-semibold text-gray-900 dark:text-white">{item.title || item.headline}</p>
-                          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{item.description || item.why_it_matters}</p>
-                          {(item.angle || item.suggested_angle) && (
-                            <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">Angle: {item.angle || item.suggested_angle}</p>
+                <div className="space-y-3">
+                  {record.key_insights?.map((item, idx) => {
+                    const isExpanded = expandedInsights.has(idx)
+                    const hasDescription = !!item.summary
+                    return (
+                      <div key={idx} className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2 flex-1">
+                            <span className="text-lg">•</span>
+                            <p className="text-sm font-medium text-gray-900 dark:text-white flex-1">{item.title}</p>
+                          </div>
+                          {hasDescription && (
+                            <button
+                              onClick={() => {
+                                const newExpanded = new Set(expandedInsights)
+                                if (isExpanded) {
+                                  newExpanded.delete(idx)
+                                } else {
+                                  newExpanded.add(idx)
+                                }
+                                setExpandedInsights(newExpanded)
+                              }}
+                              className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+                              aria-label={isExpanded ? "Collapse" : "Expand"}
+                            >
+                              <ChevronDown className={`h-4 w-4 text-gray-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                            </button>
                           )}
                         </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="shrink-0 border-orange-300 dark:border-orange-700 text-orange-600 dark:text-orange-400 hover:bg-orange-100 dark:hover:bg-orange-900/40"
-                          onClick={() => {
-                            const title = item.title || item.headline || ''
-                            const description = item.description || item.why_it_matters || ''
-                            const angle = item.angle || item.suggested_angle || ''
-                            let prompt = `Generate a LinkedIn draft on this idea:\n\nTitle: ${title}`
-                            if (description) prompt += `\nDescription: ${description}`
-                            if (angle) prompt += `\nAngle: ${angle}`
-                            sessionStorage.setItem('checkin_draft_prompt', prompt)
-                            router.push('/create')
-                          }}
-                        >
-                          <PenLine className="h-3 w-3 mr-1" />
-                          Draft
-                        </Button>
+                        {item.summary && isExpanded && (
+                          <p className="text-sm text-gray-600 dark:text-gray-400 mt-2 ml-6">
+                            {item.summary}
+                          </p>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Content Ideas */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-2xl">💡</span>
+                  <h3 className="text-base font-semibold text-gray-900 dark:text-white">Content Ideas</h3>
+                </div>
+                <div className="space-y-3">
+                  {record.content_ideas?.map((item, idx) => {
+                    const title = item.title || item.headline || ''
+                    const description = item.description || item.why_it_matters || ''
+                    const angle = item.angle || item.suggested_angle || ''
+                    return (
+                      <div key={idx} className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-gray-900 dark:text-white mb-2">{title}</p>
+                            <p className="text-sm text-gray-600 dark:text-gray-400">{description}</p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="shrink-0 border-orange-300 dark:border-orange-700 text-orange-600 dark:text-orange-400 hover:bg-orange-100 dark:hover:bg-orange-900/40 h-8"
+                            onClick={() => {
+                              let prompt = `Generate a LinkedIn draft on this idea:\n\nTitle: ${title}`
+                              if (description) prompt += `\nDescription: ${description}`
+                              if (angle) prompt += `\nAngle: ${angle}`
+                              sessionStorage.setItem('checkin_draft_prompt', prompt)
+                              router.push('/create')
+                            }}
+                          >
+                            <PenLine className="h-3 w-3 mr-1" />
+                            Draft
+                          </Button>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             </div>
@@ -853,15 +885,17 @@ export default function CheckInPage() {
         )}
 
         {/* Info section */}
-        <Card className="p-4 bg-gray-50 dark:bg-card border-gray-200 dark:border-border">
-          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">How it works</h3>
-          <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
-            <li>• Click "Start Check-in Call" for a short guided chat</li>
-            <li>• The AI asks about wins, blockers, and ideas (under 4 minutes)</li>
-            <li>• When you end the call, we extract 3 insights and 3 content ideas</li>
-            <li>• Limit: 2 check-ins per 24 hours</li>
-          </ul>
-        </Card>
+        {callStatus !== 'completed' && (
+          <Card className="p-4 bg-gray-50 dark:bg-card border-gray-200 dark:border-border">
+            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">How it works</h3>
+            <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
+              <li>• Click "Start Check-in Call" for a short guided chat</li>
+              <li>• The AI asks about wins, blockers, and ideas (strictly 5 minutes)</li>
+              <li>• When the call ends, we extract 3 insights and 3 content ideas</li>
+              <li>• Limit: 2 check-ins per 24 hours</li>
+            </ul>
+          </Card>
+        )}
         </div>
       </div>
     </AppLayout>

@@ -73,6 +73,10 @@ interface DraftPanelProps {
   onSaveToPlan?: (content: string, scheduledAt?: string, title?: string, notes?: string) => Promise<void>;
   /** Set of draft version IDs that are already saved to plan */
   savedVersionIds?: Set<string>;
+  /** Callback when user selects a different draft */
+  onDraftSelect?: (draftId: string) => void;
+  /** Callback when user selects a different version */
+  onVersionSelect?: (version: number | null) => void;
 }
 
 export const DraftPanel = memo(({ 
@@ -101,6 +105,8 @@ export const DraftPanel = memo(({
   onFeedbackSaved,
   onSaveToPlan,
   savedVersionIds,
+  onDraftSelect,
+  onVersionSelect,
 }: DraftPanelProps) => {
   const [selectedDraftIndex, setSelectedDraftIndex] = useState(drafts.length - 1);
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null); // null means current version
@@ -402,7 +408,12 @@ export const DraftPanel = memo(({
                 {drafts.map((draft, index) => (
                   <button
                     key={draft.id}
-                    onClick={() => setSelectedDraftIndex(index)}
+                    onClick={() => {
+                      setSelectedDraftIndex(index);
+                      setSelectedVersion(null); // Reset to current version when switching drafts
+                      onDraftSelect?.(draft.id);
+                      onVersionSelect?.(null);
+                    }}
                     className={`
                       flex-shrink-0 px-3 py-2 rounded-lg border-2 transition-all text-left
                       ${selectedDraftIndex === index 
@@ -459,7 +470,10 @@ export const DraftPanel = memo(({
                         return (
                           <button
                             key={version.version}
-                            onClick={() => setSelectedVersion(version.version)}
+                            onClick={() => {
+                              setSelectedVersion(version.version);
+                              onVersionSelect?.(version.version);
+                            }}
                             className={`
                               px-3 py-1.5 rounded-md text-xs font-medium transition-all
                               ${isSelected
@@ -697,7 +711,14 @@ export const DraftPanel = memo(({
                       const currentVersionObj = selectedDraft && selectedVersion !== null && selectedVersion !== selectedDraft.currentVersion
                         ? selectedDraft.versions.find(v => v.version === selectedVersion)
                         : selectedDraft?.versions.find(v => v.version === selectedDraft?.currentVersion);
-                      const isAlreadySaved = !!(currentVersionObj?.dbId && savedVersionIds?.has(currentVersionObj.dbId));
+                      const currentVersionNumber = selectedVersion !== null ? selectedVersion : selectedDraft?.currentVersion;
+                      
+                      // Check by version dbId, or by draft+version composite key
+                      const compositeKey = selectedDraft?.id && currentVersionNumber !== undefined 
+                        ? `draft_${selectedDraft.id}_v${currentVersionNumber}` 
+                        : null;
+                      const isAlreadySaved = !!(currentVersionObj?.dbId && savedVersionIds?.has(currentVersionObj.dbId)) ||
+                        !!(compositeKey && savedVersionIds?.has(compositeKey));
                       
                       return (
                         <button

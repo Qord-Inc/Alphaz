@@ -15,11 +15,10 @@ import { UploadedImage } from "@/components/linkedin-post-preview";
 import { ThreadsPanel } from "@/components/threads-panel";
 import { useThreads } from "@/hooks/useThreads";
 import { MessageFeedback } from "@/components/message-feedback";
+import { VoiceInput } from "@/components/voice-input";
 import { saveDraft as saveDraftToApi, updateDraftVersion as updateDraftVersionApi, updateDraftVersionParentMessage } from "@/lib/threadsApi";
 import { 
-  Paperclip, 
-  Mic, 
-  BarChart3, 
+  Paperclip,
   Send, 
   Menu, 
   SquarePen, 
@@ -33,8 +32,31 @@ import {
   FileText,
   Trash2,
   Loader as LoaderIcon,
-  PenLine
+  PenLine,
+  Image as ImageIcon,
+  File as FileIcon
 } from "lucide-react";
+
+// File attachment types and constants
+interface AttachedFile {
+  file: File;
+  preview?: string; // For images
+  content?: string; // Extracted text content
+}
+
+const ALLOWED_FILE_TYPES = [
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'image/jpeg',
+  'image/jpg', 
+  'image/png',
+  'image/svg+xml',
+  'text/plain'
+];
+
+const ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png', '.svg', '.txt'];
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
 // Feedback map type
 type FeedbackMap = Record<string, { type: 'up' | 'down'; text?: string }>;
@@ -47,6 +69,7 @@ const ChatMessage = memo(({
   onViewDraft,
   selectedDraftId,
   selectedDraftVersion,
+  drafts,
   threadId,
   userId,
   feedback,
@@ -69,6 +92,7 @@ const ChatMessage = memo(({
   onViewDraft?: (draftId: string, version?: number) => void;
   selectedDraftId?: string | null;
   selectedDraftVersion?: number | null;
+  drafts?: Draft[];
   threadId?: string | null;
   userId?: string | null;
   feedback?: { type: 'up' | 'down'; text?: string } | null;
@@ -130,8 +154,11 @@ const ChatMessage = memo(({
     const versionLabel = message.draftVersion ? `Version ${message.draftVersion}` : 'Version 1';
     
     // Check if this CTA is the active/selected one
+    // When selectedDraftVersion is null, it means "current version" of the draft
+    const selectedDraft = drafts?.find(d => d.id === selectedDraftId);
+    const effectiveSelectedVersion = selectedDraftVersion ?? selectedDraft?.currentVersion;
     const isActive = message.draftId === selectedDraftId && 
-                     message.draftVersion === selectedDraftVersion;
+                     message.draftVersion === effectiveSelectedVersion;
 
     return (
       <div className="w-full flex justify-center">
@@ -431,6 +458,7 @@ const MessageList = memo(({
   onViewDraft,
   selectedDraftId,
   selectedDraftVersion,
+  drafts,
   threadId,
   userId,
   feedbackMap,
@@ -442,6 +470,7 @@ const MessageList = memo(({
   onViewDraft: (draftId: string, version?: number) => void;
   selectedDraftId?: string | null;
   selectedDraftVersion?: number | null;
+  drafts?: Draft[];
   threadId?: string | null;
   userId?: string | null;
   feedbackMap?: FeedbackMap;
@@ -494,6 +523,7 @@ const MessageList = memo(({
                   onViewDraft={onViewDraft}
                   selectedDraftId={selectedDraftId}
                   selectedDraftVersion={selectedDraftVersion}
+                  drafts={drafts}
                   threadId={threadId}
                   userId={userId}
                   feedback={feedbackMap?.[feedbackKey]}
@@ -576,6 +606,11 @@ export default function Create({ threadId, initialDraftId, initialVersionId }: C
   
   // Track which draft versions are already saved to plan
   const [savedVersionIds, setSavedVersionIds] = useState<Set<string>>(new Set());
+  
+  // File attachment state
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileInputFloatingRef = useRef<HTMLInputElement>(null);
 
   // Fetch personal context for personal accounts
   useEffect(() => {
@@ -1315,10 +1350,25 @@ export default function Create({ threadId, initialDraftId, initialVersionId }: C
 
       const data = await response.json();
       
-      // Add the version ID to saved set
-      if (currentVersion?.dbId) {
-        setSavedVersionIds(prev => new Set([...prev, currentVersion.dbId!]));
-      }
+      // Add the version ID to saved set - try from both current version and response
+      const versionIdToSave = currentVersion?.dbId || data.draft?.draft_version_id;
+      
+      // Create composite key for tracking: draft_id + version_number
+      const compositeKey = selectedDraftId && versionNumber !== undefined 
+        ? `draft_${selectedDraftId}_v${versionNumber}` 
+        : null;
+      
+      // Add both the version dbId (if exists) and composite key to track this specific version
+      setSavedVersionIds(prev => {
+        const newSet = new Set(prev);
+        if (versionIdToSave) {
+          newSet.add(versionIdToSave);
+        }
+        if (compositeKey) {
+          newSet.add(compositeKey);
+        }
+        return newSet;
+      });
       
       // Show success message
       setPostStatus({ 
@@ -1462,9 +1512,22 @@ export default function Create({ threadId, initialDraftId, initialVersionId }: C
       lastEditPromptRef.current = messageToSend;
     }
     
+    // Build message with file attachments
+    let fullMessage = messageToSend;
+    if (attachedFiles.length > 0) {
+      const fileContents = attachedFiles.map(af => {
+        if (af.file.type.startsWith('image/')) {
+          return `\n\n[Attached Image: ${af.file.name}]`;
+        }
+        return `\n\n[Attached File: ${af.file.name}]\n${af.content || ''}`;
+      }).join('');
+      fullMessage = messageToSend + fileContents;
+    }
+    
     setInputValue(""); // Clear input immediately for better UX
-    await sendMessage(messageToSend);
-  }, [inputValue, isLoading, sendMessage, messages.length, isDraftMode, messages, currentThread, newThread, appendMessage, drafts.length]);
+    setAttachedFiles([]); // Clear attachments after sending
+    await sendMessage(fullMessage);
+  }, [inputValue, isLoading, sendMessage, messages.length, isDraftMode, messages, currentThread, newThread, appendMessage, drafts.length, attachedFiles]);
 
   /**
    * Handle keyboard shortcut (Enter to send) - memoized
@@ -1481,6 +1544,105 @@ export default function Create({ threadId, initialDraftId, initialVersionId }: C
    */
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInputValue(e.target.value);
+  }, []);
+
+  /**
+   * Extract text content from file
+   */
+  const extractFileContent = useCallback(async (file: File): Promise<string> => {
+    // For text files, read directly
+    if (file.type === 'text/plain') {
+      return await file.text();
+    }
+    
+    // For images, we'll pass them as base64 to the AI
+    if (file.type.startsWith('image/')) {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          resolve(`[Image: ${file.name}]`);
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+    
+    // For PDF and DOC files, we'll need backend processing
+    // For now, indicate the file type
+    if (file.type === 'application/pdf') {
+      return `[PDF Document: ${file.name}]`;
+    }
+    
+    if (file.type === 'application/msword' || file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+      return `[Word Document: ${file.name}]`;
+    }
+    
+    return `[File: ${file.name}]`;
+  }, []);
+
+  /**
+   * Handle file selection
+   */
+  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    
+    const newFiles: AttachedFile[] = [];
+    
+    for (const file of Array.from(files)) {
+      // Check file type
+      const extension = '.' + file.name.split('.').pop()?.toLowerCase();
+      if (!ALLOWED_FILE_TYPES.includes(file.type) && !ALLOWED_EXTENSIONS.includes(extension)) {
+        alert(`File type not supported: ${file.name}\n\nAllowed types: PDF, DOC, DOCX, JPG, JPEG, PNG, SVG, TXT`);
+        continue;
+      }
+      
+      // Check file size
+      if (file.size > MAX_FILE_SIZE) {
+        alert(`File too large: ${file.name}\n\nMaximum size: 5MB`);
+        continue;
+      }
+      
+      // Create preview for images
+      let preview: string | undefined;
+      if (file.type.startsWith('image/')) {
+        preview = URL.createObjectURL(file);
+      }
+      
+      // Extract content
+      const content = await extractFileContent(file);
+      
+      newFiles.push({ file, preview, content });
+    }
+    
+    setAttachedFiles(prev => [...prev, ...newFiles]);
+    
+    // Reset file input
+    e.target.value = '';
+  }, [extractFileContent]);
+
+  /**
+   * Remove an attached file
+   */
+  const removeAttachedFile = useCallback((index: number) => {
+    setAttachedFiles(prev => {
+      const newFiles = [...prev];
+      // Revoke object URL if it exists
+      if (newFiles[index].preview) {
+        URL.revokeObjectURL(newFiles[index].preview!);
+      }
+      newFiles.splice(index, 1);
+      return newFiles;
+    });
+  }, []);
+
+  /**
+   * Get file icon based on type
+   */
+  const getFileIcon = useCallback((file: File) => {
+    if (file.type.startsWith('image/')) {
+      return <ImageIcon className="h-4 w-4" />;
+    }
+    return <FileIcon className="h-4 w-4" />;
   }, []);
 
   // Auto-resize chat input up to a max height, then allow internal scroll
@@ -1809,6 +1971,31 @@ export default function Create({ threadId, initialDraftId, initialVersionId }: C
                   
                   {/* Centered Input */}
                   <div className="bg-card rounded-2xl border border-border shadow-sm hover:shadow-md transition-shadow">
+                    {/* Attached Files Preview */}
+                    {attachedFiles.length > 0 && (
+                      <div className="px-4 pt-3 flex flex-wrap gap-2">
+                        {attachedFiles.map((af, index) => (
+                          <div 
+                            key={index}
+                            className="flex items-center gap-2 bg-muted/50 rounded-lg px-3 py-1.5 text-sm"
+                          >
+                            {af.preview ? (
+                              <img src={af.preview} alt={af.file.name} className="h-6 w-6 object-cover rounded" />
+                            ) : (
+                              getFileIcon(af.file)
+                            )}
+                            <span className="text-muted-foreground max-w-[120px] truncate">{af.file.name}</span>
+                            <button 
+                              onClick={() => removeAttachedFile(index)}
+                              className="text-muted-foreground hover:text-foreground"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    
                     <Textarea
                       placeholder="Describe your LinkedIn post idea..."
                       value={inputValue}
@@ -1819,32 +2006,49 @@ export default function Create({ threadId, initialDraftId, initialVersionId }: C
                       disabled={isLoading || isTransitioning}
                     />
 
-                    {/* Action Bar */}
-                    <div className="flex items-center justify-between px-4 py-3 bg-muted/30 rounded-b-2xl border-t border-border">
-                      <div className="flex items-center gap-3 text-muted-foreground">
-                        <button className="hover:text-foreground transition">
-                          <Paperclip className="h-5 w-5" />
-                        </button>
-                        <button className="hover:text-gray-600 transition">
-                          <Mic className="h-5 w-5" />
-                        </button>
-                        <button className="hover:text-gray-600 transition">
-                          <BarChart3 className="h-5 w-5" />
-                        </button>
-                      </div>
+                    {/* Hidden File Input */}
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={handleFileSelect}
+                      accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.svg,.txt"
+                      multiple
+                      className="hidden"
+                    />
 
-                      <Button
-                        size="sm"
-                        onClick={handleSendMessage}
-                        disabled={!inputValue.trim() || isLoading || isTransitioning}
-                        className="bg-orange-400 hover:bg-orange-500 text-white rounded-lg px-4 h-10 flex items-center gap-2 shadow-sm"
+                    {/* Action Bar */}
+                    <div className="flex items-center justify-between px-4 py-3 bg-muted/30 rounded-b-2xl">
+                      <button 
+                        onClick={() => fileInputRef.current?.click()}
+                        className="text-muted-foreground hover:text-foreground transition"
+                        title="Attach files (PDF, DOC, DOCX, JPG, PNG, SVG, TXT - max 5MB)"
                       >
-                        {isLoading ? (
-                          <LoaderIcon className="h-5 w-5 animate-spin" />
-                        ) : (
-                          <Send className="h-5 w-5" />
-                        )}
-                      </Button>
+                        <Paperclip className="h-5 w-5" />
+                      </button>
+
+                      <div className="flex items-center gap-3">
+                        <VoiceInput
+                          onTranscript={(text) => {
+                            setInputValue(text);
+                            if (inputRefCentered.current) {
+                              inputRefCentered.current.focus();
+                            }
+                          }}
+                          disabled={isLoading || isTransitioning}
+                        />
+                        <Button
+                          size="sm"
+                          onClick={handleSendMessage}
+                          disabled={(!inputValue.trim() && attachedFiles.length === 0) || isLoading || isTransitioning}
+                          className="bg-orange-400 hover:bg-orange-500 text-white rounded-lg px-4 h-10 flex items-center gap-2 shadow-sm"
+                        >
+                          {isLoading ? (
+                            <LoaderIcon className="h-5 w-5 animate-spin" />
+                          ) : (
+                            <Send className="h-5 w-5" />
+                          )}
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1865,6 +2069,7 @@ export default function Create({ threadId, initialDraftId, initialVersionId }: C
                       onViewDraft={handleViewDraft}
                       selectedDraftId={selectedDraftId}
                       selectedDraftVersion={selectedDraftVersion}
+                      drafts={drafts}
                       threadId={currentThread?.id}
                       userId={clerkUser?.id}
                       feedbackMap={feedbackMap}
@@ -1962,6 +2167,13 @@ export default function Create({ threadId, initialDraftId, initialVersionId }: C
                       onFeedbackSaved={handleFeedbackSaved}
                       onSaveToPlan={handleSaveToPlan}
                       savedVersionIds={savedVersionIds}
+                      onDraftSelect={(draftId) => {
+                        setSelectedDraftId(draftId);
+                        setSelectedDraftVersion(null);
+                      }}
+                      onVersionSelect={(version) => {
+                        setSelectedDraftVersion(version);
+                      }}
                     />
                   )}
                 </div>
@@ -1981,6 +2193,31 @@ export default function Create({ threadId, initialDraftId, initialVersionId }: C
               >
                 <div className="max-w-4xl mx-auto px-6">
                   <div className="bg-card rounded-2xl border border-border shadow-lg hover:shadow-xl transition-all">
+                      {/* Attached Files Preview */}
+                      {attachedFiles.length > 0 && (
+                        <div className="px-4 pt-3 flex flex-wrap gap-2">
+                          {attachedFiles.map((af, index) => (
+                            <div 
+                              key={index}
+                              className="flex items-center gap-2 bg-muted/50 rounded-lg px-3 py-1.5 text-sm"
+                            >
+                              {af.preview ? (
+                                <img src={af.preview} alt={af.file.name} className="h-6 w-6 object-cover rounded" />
+                              ) : (
+                                getFileIcon(af.file)
+                              )}
+                              <span className="text-muted-foreground max-w-[120px] truncate">{af.file.name}</span>
+                              <button 
+                                onClick={() => removeAttachedFile(index)}
+                                className="text-muted-foreground hover:text-foreground"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      
                       <Textarea
                         placeholder="Continue the conversation..."
                         value={inputValue}
@@ -1991,32 +2228,49 @@ export default function Create({ threadId, initialDraftId, initialVersionId }: C
                         disabled={isLoading}
                       />
 
-                      {/* Action Bar */}
-                      <div className="flex items-center justify-between px-5 py-3 bg-gradient-to-r from-muted/30 to-muted/10 rounded-b-2xl border-t border-border">
-                        <div className="flex items-center gap-3">
-                          <button className="text-muted-foreground hover:text-foreground transition-colors hover:scale-110 transition-transform">
-                            <Paperclip className="h-5 w-5" />
-                          </button>
-                          <button className="text-gray-400 hover:text-gray-600 transition-colors hover:scale-110 transition-transform">
-                            <Mic className="h-5 w-5" />
-                          </button>
-                          <button className="text-gray-400 hover:text-gray-600 transition-colors hover:scale-110 transition-transform">
-                            <BarChart3 className="h-5 w-5" />
-                          </button>
-                        </div>
+                      {/* Hidden File Input */}
+                      <input
+                        type="file"
+                        ref={fileInputFloatingRef}
+                        onChange={handleFileSelect}
+                        accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.svg,.txt"
+                        multiple
+                        className="hidden"
+                      />
 
-                        <Button
-                          size="sm"
-                          onClick={handleSendMessage}
-                          disabled={!inputValue.trim() || isLoading}
-                          className="bg-gradient-to-r from-orange-400 to-orange-500 hover:from-orange-500 hover:to-orange-600 text-white rounded-xl px-5 h-10 flex items-center gap-2 shadow-md hover:shadow-lg transition-all"
+                      {/* Action Bar */}
+                      <div className="flex items-center justify-between px-5 py-3 bg-gradient-to-r from-muted/30 to-muted/10 rounded-b-2xl">
+                        <button 
+                          onClick={() => fileInputFloatingRef.current?.click()}
+                          className="text-muted-foreground hover:text-foreground transition-colors hover:scale-110 transition-transform"
+                          title="Attach files (PDF, DOC, DOCX, JPG, PNG, SVG, TXT - max 5MB)"
                         >
-                          {isLoading ? (
-                            <LoaderIcon className="h-5 w-5 animate-spin" />
-                          ) : (
-                            <Send className="h-5 w-5" />
-                          )}
-                        </Button>
+                          <Paperclip className="h-5 w-5" />
+                        </button>
+
+                        <div className="flex items-center gap-3">
+                          <VoiceInput
+                            onTranscript={(text) => {
+                              setInputValue(text);
+                              if (inputRefFloating.current) {
+                                inputRefFloating.current.focus();
+                              }
+                            }}
+                            disabled={isLoading}
+                          />
+                          <Button
+                            size="sm"
+                            onClick={handleSendMessage}
+                            disabled={(!inputValue.trim() && attachedFiles.length === 0) || isLoading}
+                            className="bg-gradient-to-r from-orange-400 to-orange-500 hover:from-orange-500 hover:to-orange-600 text-white rounded-xl px-5 h-10 flex items-center gap-2 shadow-md hover:shadow-lg transition-all"
+                          >
+                            {isLoading ? (
+                              <LoaderIcon className="h-5 w-5 animate-spin" />
+                            ) : (
+                              <Send className="h-5 w-5" />
+                            )}
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   </div>
