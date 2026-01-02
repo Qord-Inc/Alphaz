@@ -4,6 +4,8 @@ export default function Page() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background">
       <SignIn 
+        forceRedirectUrl="/"
+        signUpUrl="/sign-up"
         appearance={{
           elements: {
             formButtonPrimary: 'bg-orange-500 hover:bg-orange-600 text-sm normal-case',

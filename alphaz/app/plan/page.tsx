@@ -265,14 +265,14 @@ export default function Plan() {
 
       if (response.ok) {
         await fetchDrafts();
-        setPostStatus({ type: 'success', message: 'Draft unscheduled' });
+        setPostStatus({ type: 'success', message: 'Draft moved to unplanned' });
         setTimeout(() => setPostStatus(null), 3000);
       } else {
-        throw new Error('Failed to unschedule draft');
+        throw new Error('Failed to unplan draft');
       }
     } catch (error) {
-      console.error('Error unscheduling draft:', error);
-      setPostStatus({ type: 'error', message: 'Failed to unschedule draft' });
+      console.error('Error unplanning draft:', error);
+      setPostStatus({ type: 'error', message: 'Failed to unplan draft' });
       setTimeout(() => setPostStatus(null), 3000);
     } finally {
       setDraggedDraft(null);
@@ -301,14 +301,14 @@ export default function Plan() {
 
       if (response.ok) {
         await fetchDrafts();
-        setPostStatus({ type: 'success', message: 'Draft scheduled successfully' });
+        setPostStatus({ type: 'success', message: 'Draft planned successfully' });
         setTimeout(() => setPostStatus(null), 3000);
       } else {
-        throw new Error('Failed to schedule draft');
+        throw new Error('Failed to plan draft');
       }
     } catch (error) {
-      console.error('Error scheduling draft:', error);
-      setPostStatus({ type: 'error', message: 'Failed to schedule draft' });
+      console.error('Error planning draft:', error);
+      setPostStatus({ type: 'error', message: 'Failed to plan draft' });
       setTimeout(() => setPostStatus(null), 3000);
     } finally {
       setIsTimePickerOpen(false);
@@ -419,7 +419,7 @@ export default function Plan() {
           <div>
             <h1 className="text-3xl font-bold">Plan</h1>
             <p className="text-muted-foreground mt-1">
-              Manage your scheduled and saved drafts
+              Manage your planned and saved drafts
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -451,13 +451,13 @@ export default function Plan() {
             </div>
           ) : view === 'list' ? (
             <div className="space-y-6">
-              {/* Scheduled Drafts */}
+              {/* Planned Drafts */}
               <div>
-                <h2 className="text-xl font-semibold mb-4">Scheduled ({scheduledDrafts.length})</h2>
+                <h2 className="text-xl font-semibold mb-4">Planned ({scheduledDrafts.length})</h2>
                 {scheduledDrafts.length === 0 ? (
                   <Card>
                     <CardContent className="py-8 text-center text-muted-foreground">
-                      No scheduled drafts. Schedule drafts from the Create page.
+                      No planned drafts. Plan drafts from the Create page.
                     </CardContent>
                   </Card>
                 ) : (
@@ -547,13 +547,13 @@ export default function Plan() {
                 )}
               </div>
 
-              {/* Unscheduled Drafts */}
+              {/* Unplanned Drafts */}
               <div>
-                <h2 className="text-xl font-semibold mb-4">Unscheduled Drafts ({savedDrafts.length})</h2>
+                <h2 className="text-xl font-semibold mb-4">Unplanned Drafts ({savedDrafts.length})</h2>
                 {savedDrafts.length === 0 ? (
                   <Card>
                     <CardContent className="py-8 text-center text-muted-foreground">
-                      No unscheduled drafts. Save drafts from the Create page.
+                      No unplanned drafts. Save drafts from the Create page.
                     </CardContent>
                   </Card>
                 ) : (
@@ -825,7 +825,7 @@ export default function Plan() {
                       <span className="text-2xl">💡</span>
                       <div className="flex-1">
                         <p className="text-sm font-medium text-yellow-800 dark:text-yellow-300">
-                          Tip: Drag drafts from the right sidebar and drop them onto any calendar date to schedule.
+                          Tip: Drag drafts from the right sidebar and drop them onto any calendar date to plan.
                         </p>
                       </div>
                     </div>
@@ -866,7 +866,7 @@ export default function Plan() {
                             >
                               <div className="flex items-start justify-between gap-2 mb-2">
                                 <span className={`text-xs font-medium ${isBeingDragged ? 'text-primary' : 'text-blue-600 dark:text-blue-400'}`}>
-                                  {isBeingDragged ? '📅 Drop to reschedule...' : (draft.scheduled_at && format(new Date(draft.scheduled_at), 'h:mm a'))}
+                                  {isBeingDragged ? '📅 Drop to move...' : (draft.scheduled_at && format(new Date(draft.scheduled_at), 'h:mm a'))}
                                 </span>
                                 <div className="flex gap-1">
                                   <Button
@@ -965,18 +965,18 @@ export default function Plan() {
                         {savedDrafts.length}
                       </span>
                       {isDragOverUnscheduled && draggedDraft?.status === 'scheduled' 
-                        ? '📥 Drop to Unschedule' 
-                        : 'Unscheduled Drafts'}
+                        ? '📥 Drop to Unplan' 
+                        : 'Unplanned Drafts'}
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
                     {savedDrafts.length === 0 ? (
                       <div className="text-center py-8">
                         <p className="text-sm text-muted-foreground mb-2">
-                          💡 Tip: Drag drafts and drop them onto any calendar date to schedule.
+                          💡 Tip: Drag drafts and drop them onto any calendar date to plan.
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          No unscheduled drafts yet.
+                          No unplanned drafts yet.
                         </p>
                       </div>
                     ) : (
@@ -1102,7 +1102,7 @@ export default function Plan() {
             <div className="w-[240px] bg-background border-2 border-primary rounded-lg p-3 shadow-2xl rotate-2">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-xs font-medium text-primary">
-                  📅 {draggedDraft.status === 'scheduled' ? 'Rescheduling...' : 'Scheduling...'}
+                  📅 {draggedDraft.status === 'scheduled' ? 'Moving...' : 'Planning...'}
                 </span>
               </div>
               {draggedDraft.title && (
@@ -1156,7 +1156,7 @@ export default function Plan() {
                   <Label htmlFor="scheduledAt">
                     <div className="flex items-center gap-2 mb-2">
                       <CalendarIcon className="h-4 w-4" />
-                      Scheduled Date & Time
+                      Planned Date & Time
                     </div>
                   </Label>
                   <DateTimePicker
@@ -1194,7 +1194,7 @@ export default function Plan() {
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Clock className="h-5 w-5" />
-                {draggedDraft?.status === 'scheduled' ? 'Reschedule Draft' : 'Select Time'}
+                {draggedDraft?.status === 'scheduled' ? 'Move Draft' : 'Select Time'}
               </DialogTitle>
               <DialogDescription>
                 {dropTargetDate && (
@@ -1332,7 +1332,7 @@ export default function Plan() {
               </Button>
               <Button onClick={handleConfirmSchedule}>
                 <Clock className="h-4 w-4 mr-2" />
-                {draggedDraft?.status === 'scheduled' ? 'Reschedule' : 'Schedule'} for {scheduleTime ? format(scheduleTime, 'h:mm a') : '9:00 AM'}
+                {draggedDraft?.status === 'scheduled' ? 'Move' : 'Plan'} for {scheduleTime ? format(scheduleTime, 'h:mm a') : '9:00 AM'}
               </Button>
             </DialogFooter>
           </DialogContent>
