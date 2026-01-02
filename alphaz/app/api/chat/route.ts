@@ -7,11 +7,12 @@ import { buildPersonalSystemPrompt, hasPersonalContext } from '@/lib/prompts/per
 
 // Intent classification schema
 const IntentSchema = z.object({
-  intent: z.enum(['edit', 'ideate', 'draft', 'feedback']).describe(
-    'edit: User wants to modify/refine existing content. ' +
-    'ideate: User wants to brainstorm ideas/concepts. ' +
-    'draft: User wants to create new content from scratch. ' +
-    'feedback: User wants critique/analysis of content.'
+  intent: z.enum(['edit', 'ideate', 'draft', 'feedback', 'general']).describe(
+    'edit: User wants to modify/refine existing content they already have. ' +
+    'ideate: User wants to brainstorm post ideas/concepts for LinkedIn. ' +
+    'draft: User explicitly wants to create/write a new LinkedIn post from scratch. ' +
+    'feedback: User wants critique/analysis of their LinkedIn content. ' +
+    'general: User is asking questions, requesting summaries, seeking information, or having a conversation NOT about creating/editing LinkedIn posts. Use this for "what is this?", "summarize this", "explain", "tell me about", or any attached file questions.'
   ),
 });
 
@@ -170,7 +171,7 @@ export async function POST(request: Request) {
     console.log(`   Model: ${modelName}`);
     console.log(`   Temperature: 0.7`);
     console.log(`   Stream: Enabled (real-time response)`);
-    console.log(`   Reason: ${useClaudeModel ? 'Edit/Draft intent - using Claude Opus 4.5 for best quality' : 'Ideate/Feedback intent - using GPT'}`);
+    console.log(`   Reason: ${useClaudeModel ? 'Edit/Draft intent - using Claude Opus 4.5 for best quality' : intent === 'general' ? 'General Q&A intent - using GPT' : 'Ideate/Feedback intent - using GPT'}`);
 
     // Call AI with streaming enabled - use Claude Opus 4.5 for edit/draft, GPT for others
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

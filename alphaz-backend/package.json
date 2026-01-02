@@ -21,8 +21,10 @@
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
+    "mammoth": "^1.11.0",
     "multer": "^2.0.2",
     "openai": "^6.10.0",
+    "pdf-parse": "^2.4.5",
     "zod": "^3.25.0"
   },
   "devDependencies": {
