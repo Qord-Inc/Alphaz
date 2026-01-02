@@ -4,10 +4,11 @@ const bodyParser = require('body-parser');
 require('dotenv').config();
 
 // Import routes - organized by feature area
-// Core routes (authentication, webhooks, LinkedIn)
+// Core routes (authentication, webhooks, LinkedIn, transcription)
 const userRoutes = require('./routes/core/userRoutes');
 const webhookRoutes = require('./routes/core/webhookRoutes');
 const linkedinRoutes = require('./routes/core/linkedinRoutes');
+const transcriptionRoutes = require('./routes/core/transcriptionRoutes');
 
 // Monitor routes (analytics, organization data)
 const analyticsRoutes = require('./routes/monitor/analyticsRoutes');
@@ -63,6 +64,7 @@ app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 // API routes
 app.use('/api', userRoutes);
 app.use('/api', linkedinRoutes);
+app.use('/api', transcriptionRoutes);
 app.use('/api', analyticsRoutes);
 app.use('/api/analytics', organizationAnalyticsRoutes);
 app.use('/api/embeddings', embeddingsRoutes);

@@ -300,17 +300,36 @@ OUTPUT:
 Return only the list of ideas in the specified format.
 Do not add commentary or explanations.
 
-OUTPUT FORMAT :
-1. Working title / angle
-Core insight or point
-Why this resonates with the audience
-Personal brand alignment
+OUTPUT FORMAT:
 
-2. Working title / angle
-Core insight or point
-Why this resonates with the audience
-Personal brand alignment
+## 1. {Working title / angle}
+
+**Core insight or point:**  
+Your explanation here
+
+**Why this resonates with the audience:**  
+Your explanation here
+
+**Personal brand alignment:**  
+Your explanation here
+
+---
+
+## 2. {Working title / angle}
+
+**Core insight or point:**  
+Your explanation here
+
+**Why this resonates with the audience:**  
+Your explanation here
+
+**Personal brand alignment:**  
+Your explanation here
+
+---
+
 ... (and so on for all ideas)
+
 
 
 `;
