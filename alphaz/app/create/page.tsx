@@ -609,6 +609,7 @@ export default function Create({ threadId, initialDraftId, initialVersionId }: C
   
   // File attachment state
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const [isExtractingFiles, setIsExtractingFiles] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileInputFloatingRef = useRef<HTMLInputElement>(null);
 
@@ -1514,7 +1515,18 @@ export default function Create({ threadId, initialDraftId, initialVersionId }: C
     
     // Build message with file attachments
     let fullMessage = messageToSend;
+    let displayMessage = messageToSend;
     if (attachedFiles.length > 0) {
+      // Display version: only show filenames (no extracted content)
+      const fileLabels = attachedFiles.map(af => {
+        if (af.file.type.startsWith('image/')) {
+          return `\n\n📎 [Attached Image: ${af.file.name}]`;
+        }
+        return `\n\n📎 [Attached File: ${af.file.name}]`;
+      }).join('');
+      displayMessage = messageToSend + fileLabels;
+      
+      // Full version: include extracted content for AI
       const fileContents = attachedFiles.map(af => {
         if (af.file.type.startsWith('image/')) {
           return `\n\n[Attached Image: ${af.file.name}]`;
@@ -1526,7 +1538,7 @@ export default function Create({ threadId, initialDraftId, initialVersionId }: C
     
     setInputValue(""); // Clear input immediately for better UX
     setAttachedFiles([]); // Clear attachments after sending
-    await sendMessage(fullMessage);
+    await sendMessage(fullMessage, displayMessage);
   }, [inputValue, isLoading, sendMessage, messages.length, isDraftMode, messages, currentThread, newThread, appendMessage, drafts.length, attachedFiles]);
 
   /**
@@ -1547,36 +1559,50 @@ export default function Create({ threadId, initialDraftId, initialVersionId }: C
   }, []);
 
   /**
-   * Extract text content from file
+   * Extract text content from file using backend API
    */
   const extractFileContent = useCallback(async (file: File): Promise<string> => {
-    // For text files, read directly
-    if (file.type === 'text/plain') {
-      return await file.text();
-    }
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
     
-    // For images, we'll pass them as base64 to the AI
-    if (file.type.startsWith('image/')) {
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          resolve(`[Image: ${file.name}]`);
-        };
-        reader.readAsDataURL(file);
+    try {
+      // Create form data for upload
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await fetch(`${apiUrl}/api/extract-text`, {
+        method: 'POST',
+        body: formData,
       });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('File extraction failed:', errorData);
+        return `[Failed to extract: ${file.name}]`;
+      }
+      
+      const data = await response.json();
+      
+      // For images, return a placeholder (images are handled differently by AI)
+      if (data.isImage) {
+        return `[Image: ${file.name}]`;
+      }
+      
+      return data.text || `[Empty file: ${file.name}]`;
+      
+    } catch (error) {
+      console.error('Error extracting file content:', error);
+      
+      // Fallback: return basic info about the file
+      if (file.type === 'text/plain') {
+        try {
+          return await file.text();
+        } catch {
+          return `[Text file: ${file.name}]`;
+        }
+      }
+      
+      return `[File: ${file.name}]`;
     }
-    
-    // For PDF and DOC files, we'll need backend processing
-    // For now, indicate the file type
-    if (file.type === 'application/pdf') {
-      return `[PDF Document: ${file.name}]`;
-    }
-    
-    if (file.type === 'application/msword' || file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-      return `[Word Document: ${file.name}]`;
-    }
-    
-    return `[File: ${file.name}]`;
   }, []);
 
   /**
@@ -1586,35 +1612,40 @@ export default function Create({ threadId, initialDraftId, initialVersionId }: C
     const files = e.target.files;
     if (!files || files.length === 0) return;
     
+    setIsExtractingFiles(true);
     const newFiles: AttachedFile[] = [];
     
-    for (const file of Array.from(files)) {
-      // Check file type
-      const extension = '.' + file.name.split('.').pop()?.toLowerCase();
-      if (!ALLOWED_FILE_TYPES.includes(file.type) && !ALLOWED_EXTENSIONS.includes(extension)) {
-        alert(`File type not supported: ${file.name}\n\nAllowed types: PDF, DOC, DOCX, JPG, JPEG, PNG, SVG, TXT`);
-        continue;
+    try {
+      for (const file of Array.from(files)) {
+        // Check file type
+        const extension = '.' + file.name.split('.').pop()?.toLowerCase();
+        if (!ALLOWED_FILE_TYPES.includes(file.type) && !ALLOWED_EXTENSIONS.includes(extension)) {
+          alert(`File type not supported: ${file.name}\n\nAllowed types: PDF, DOC, DOCX, JPG, JPEG, PNG, SVG, TXT`);
+          continue;
+        }
+        
+        // Check file size
+        if (file.size > MAX_FILE_SIZE) {
+          alert(`File too large: ${file.name}\n\nMaximum size: 5MB`);
+          continue;
+        }
+        
+        // Create preview for images
+        let preview: string | undefined;
+        if (file.type.startsWith('image/')) {
+          preview = URL.createObjectURL(file);
+        }
+        
+        // Extract content from backend
+        const content = await extractFileContent(file);
+        
+        newFiles.push({ file, preview, content });
       }
       
-      // Check file size
-      if (file.size > MAX_FILE_SIZE) {
-        alert(`File too large: ${file.name}\n\nMaximum size: 5MB`);
-        continue;
-      }
-      
-      // Create preview for images
-      let preview: string | undefined;
-      if (file.type.startsWith('image/')) {
-        preview = URL.createObjectURL(file);
-      }
-      
-      // Extract content
-      const content = await extractFileContent(file);
-      
-      newFiles.push({ file, preview, content });
+      setAttachedFiles(prev => [...prev, ...newFiles]);
+    } finally {
+      setIsExtractingFiles(false);
     }
-    
-    setAttachedFiles(prev => [...prev, ...newFiles]);
     
     // Reset file input
     e.target.value = '';
@@ -2020,10 +2051,15 @@ export default function Create({ threadId, initialDraftId, initialVersionId }: C
                     <div className="flex items-center justify-between px-4 py-3 bg-muted/30 rounded-b-2xl">
                       <button 
                         onClick={() => fileInputRef.current?.click()}
-                        className="text-muted-foreground hover:text-foreground transition"
+                        disabled={isExtractingFiles}
+                        className="text-muted-foreground hover:text-foreground transition disabled:opacity-50"
                         title="Attach files (PDF, DOC, DOCX, JPG, PNG, SVG, TXT - max 5MB)"
                       >
-                        <Paperclip className="h-5 w-5" />
+                        {isExtractingFiles ? (
+                          <LoaderIcon className="h-5 w-5 animate-spin" />
+                        ) : (
+                          <Paperclip className="h-5 w-5" />
+                        )}
                       </button>
 
                       <div className="flex items-center gap-3">
@@ -2242,10 +2278,15 @@ export default function Create({ threadId, initialDraftId, initialVersionId }: C
                       <div className="flex items-center justify-between px-5 py-3 bg-gradient-to-r from-muted/30 to-muted/10 rounded-b-2xl">
                         <button 
                           onClick={() => fileInputFloatingRef.current?.click()}
-                          className="text-muted-foreground hover:text-foreground transition-colors hover:scale-110 transition-transform"
+                          disabled={isExtractingFiles}
+                          className="text-muted-foreground hover:text-foreground transition-colors hover:scale-110 transition-transform disabled:opacity-50"
                           title="Attach files (PDF, DOC, DOCX, JPG, PNG, SVG, TXT - max 5MB)"
                         >
-                          <Paperclip className="h-5 w-5" />
+                          {isExtractingFiles ? (
+                            <LoaderIcon className="h-5 w-5 animate-spin" />
+                          ) : (
+                            <Paperclip className="h-5 w-5" />
+                          )}
                         </button>
 
                         <div className="flex items-center gap-3">

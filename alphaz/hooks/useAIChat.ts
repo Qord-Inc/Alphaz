@@ -10,7 +10,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
-  intent?: 'edit' | 'ideate' | 'draft' | 'feedback';
+  intent?: 'edit' | 'ideate' | 'draft' | 'feedback' | 'general';
   draftContent?: string; // Clean post content for draft intent
   isStreamingProgress?: boolean; // True when showing rotating progress text during draft streaming
   isFollowUpQuestion?: boolean; // True when AI asks a clarifying question instead of generating draft
@@ -57,14 +57,14 @@ export function useAIChat({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [currentIntent, setCurrentIntent] = useState<'edit' | 'ideate' | 'draft' | 'feedback' | null>(null);
+  const [currentIntent, setCurrentIntent] = useState<'edit' | 'ideate' | 'draft' | 'feedback' | 'general' | null>(null);
 
   /**
    * Send a message to the AI
    * Automatically fetches context from database if not provided
    */
   const sendMessage = useCallback(
-    async (userMessage: string) => {
+    async (userMessage: string, displayContent?: string) => {
       // Validate input
       if (!userMessage.trim()) {
         setError('Message cannot be empty');
@@ -75,10 +75,11 @@ export function useAIChat({
       setError(null);
 
       // Create user message object
+      // displayContent is shown in UI, userMessage is sent to API
       const newUserMessage: ChatMessage = {
         id: `user-${Date.now()}`,
         role: 'user',
-        content: userMessage,
+        content: displayContent || userMessage,
         timestamp: new Date(),
       };
 
@@ -162,7 +163,7 @@ export function useAIChat({
         console.log(`   Content-Type: ${response.headers.get('content-type')}`);
         
         // Extract intent from response headers
-        const detectedIntent = response.headers.get('X-Intent') as 'edit' | 'ideate' | 'draft' | 'feedback' | null;
+        const detectedIntent = response.headers.get('X-Intent') as 'edit' | 'ideate' | 'draft' | 'feedback' | 'general' | null;
         if (detectedIntent) {
           console.log(`   🎯 Intent: ${detectedIntent.toUpperCase()}`);
           setCurrentIntent(detectedIntent);
@@ -221,6 +222,29 @@ export function useAIChat({
             console.log(`\n✅ [STREAM COMPLETE]`);
             console.log(`   Total chunks received: ${chunkCount}`);
             console.log(`   Final message length: ${fullText.length} chars`);
+            
+            // For draft/edit intents, use AI to classify if response is actual draft or follow-up question
+            if (initialIsDraftIntent && fullText.trim()) {
+              try {
+                console.log(`🔍 [CLASSIFYING RESPONSE] Calling API to detect draft vs question...`);
+                const classifyResponse = await fetch('/api/classify-response', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ content: fullText, intent: detectedIntent }),
+                });
+                
+                if (classifyResponse.ok) {
+                  const { responseType } = await classifyResponse.json();
+                  isFollowUpQuestion = responseType === 'question';
+                  console.log(`   Classification result: ${responseType.toUpperCase()}`);
+                }
+              } catch (classifyError) {
+                console.error('Response classification failed:', classifyError);
+                // Default to treating as draft on error
+                isFollowUpQuestion = false;
+              }
+            }
+            
             console.log(`   Is follow-up question: ${isFollowUpQuestion}`);
             console.log(`   Streaming to draft: ${streamingToDraft}`);
             
@@ -242,6 +266,9 @@ export function useAIChat({
             // For follow-up questions: ensure final content is set and streaming flag is cleared
             // This triggers the UI to switch from streaming to the follow-up question style
             if (isFollowUpQuestion) {
+              // Clear the intent
+              setCurrentIntent(null);
+              
               setMessages((prev) =>
                 prev.map((msg) =>
                   msg.id === assistantMessageId
@@ -249,6 +276,11 @@ export function useAIChat({
                     : msg
                 )
               );
+              
+              // Signal to clear draft panel if it was streaming there
+              if (streamingToDraft && onDraftStream) {
+                onDraftStream('', detectedIntent as 'draft' | 'edit');
+              }
             }
             
             // Call AI message complete callback for persistence (all messages)
@@ -269,37 +301,10 @@ export function useAIChat({
             console.log(`   Received ${chunkCount} chunks (${fullText.length} chars so far)...`);
           }
 
-          // Check if this is a follow-up question after we have enough content
-          // Only check once when we have 50-150 chars (enough to detect question pattern)
-          if (initialIsDraftIntent && !isFollowUpQuestion && fullText.length >= 50 && fullText.length < 200) {
-            // Import the detection function
-            const { isFollowUpQuestion: checkIsFollowUp } = require('@/lib/draftVersioning');
-            isFollowUpQuestion = checkIsFollowUp(fullText);
-            
-            if (isFollowUpQuestion) {
-              console.log(`🔄 Detected follow-up question, switching to chat stream`);
-              streamingToDraft = false;
-              
-              // Clear the intent so it's not saved as draft/edit in database
-              setCurrentIntent(null);
-              
-              // Update the assistant message to remove intent and mark as follow-up question
-              setMessages((prev) =>
-                prev.map((msg) =>
-                  msg.id === assistantMessageId
-                    ? { ...msg, intent: undefined, isFollowUpQuestion: true }
-                    : msg
-                )
-              );
-              
-              // Signal to stop draft streaming
-              if (onDraftStream) {
-                onDraftStream('', detectedIntent as 'draft' | 'edit'); // Clear draft panel
-              }
-            }
-          }
+          // Note: Follow-up question detection is now done via API after stream completes
+          // During streaming, we optimistically stream to draft panel for draft/edit intents
 
-          if (streamingToDraft && !isFollowUpQuestion) {
+          if (streamingToDraft) {
             // Stream to draft panel via callback
             if (onDraftStream) {
               onDraftStream(fullText, detectedIntent as 'draft' | 'edit');
