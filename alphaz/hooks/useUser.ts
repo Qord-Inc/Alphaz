@@ -21,35 +21,32 @@ interface User {
   updated_at: string;
 }
 
+// Cache TTL for user data - 24 hours (user data rarely changes during session)
+const USER_CACHE_TTL = 24 * 60 * 60 * 1000;
+
+// Helper to get valid cached user data
+function getValidCachedUser(): User | null {
+  try {
+    const cached = localStorage.getItem('user-data');
+    if (cached) {
+      const { data, timestamp, clerkId } = JSON.parse(cached);
+      // Cache must have data, clerkId, and not be expired
+      if (data && clerkId && Date.now() - timestamp < USER_CACHE_TTL) {
+        return data;
+      }
+    }
+  } catch {}
+  return null;
+}
+
 export function useUser() {
   const { isLoaded, isSignedIn, user: clerkUser } = useClerkUser();
-  const [user, setUser] = useState<User | null>(() => {
-    // Try to load cached user data immediately
-    try {
-      const cached = localStorage.getItem('user-data');
-      if (cached) {
-        const { data, timestamp } = JSON.parse(cached);
-        // Use cache if less than 5 minutes old
-        if (Date.now() - timestamp < 5 * 60 * 1000) {
-          return data;
-        }
-      }
-    } catch {}
-    return null;
-  });
-  // If we have cached data, we're not truly "loading", just refreshing in background
-  const [loading, setLoading] = useState(() => {
-    try {
-      const cached = localStorage.getItem('user-data');
-      if (cached) {
-        const { data, timestamp } = JSON.parse(cached);
-        if (Date.now() - timestamp < 5 * 60 * 1000) {
-          return false; // We have valid cache, not loading
-        }
-      }
-    } catch {}
-    return true; // No cache, we're loading
-  });
+  
+  // Try to load cached user data immediately (will be validated in useEffect)
+  const [user, setUser] = useState<User | null>(() => getValidCachedUser());
+  
+  // If we have cached data, we're not truly "loading"
+  const [loading, setLoading] = useState(() => getValidCachedUser() === null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -60,6 +57,36 @@ export function useUser() {
         return;
       }
 
+      // Check if we have valid cached data - skip API call if so
+      try {
+        const cached = localStorage.getItem('user-data');
+        if (cached) {
+          const { data, timestamp, clerkId } = JSON.parse(cached);
+          const isValidCache = clerkId === clerkUser.id && 
+                               Date.now() - timestamp < USER_CACHE_TTL && 
+                               data;
+          
+          if (isValidCache) {
+            console.log('📦 Using cached user data (valid cache)', { linkedin_connected: data.linkedin_connected });
+            setUser(data);
+            setLoading(false);
+            return; // Don't fetch if we have valid cache
+          } else {
+            // Cache is invalid (wrong user, expired, or missing clerkId) - clear it
+            console.log('🗑️ Clearing invalid user cache', { 
+              hasClerkId: !!clerkId, 
+              sameUser: clerkId === clerkUser.id,
+              expired: Date.now() - timestamp >= USER_CACHE_TTL 
+            });
+            localStorage.removeItem('user-data');
+          }
+        }
+      } catch (e) {
+        console.warn('Error reading user cache:', e);
+        localStorage.removeItem('user-data');
+      }
+
+      console.log('🔄 Fetching user data from API');
       try {
         // Fetch with timeout (50 seconds) - increased to handle slow backend responses
         const controller = new AbortController();
@@ -76,15 +103,23 @@ export function useUser() {
 
         if (response.ok) {
           const data = await response.json();
+          console.log('✅ API returned user data:', { 
+            linkedin_connected: data.user?.linkedin_connected,
+            linkedin_profile_name: data.user?.linkedin_profile_name 
+          });
           setUser(data.user);
           
-          // Cache the user data
+          // Cache the user data with clerk ID for validation
           try {
             localStorage.setItem('user-data', JSON.stringify({
               data: data.user,
-              timestamp: Date.now()
+              timestamp: Date.now(),
+              clerkId: clerkUser.id
             }));
-          } catch {}
+            console.log('💾 User data cached successfully');
+          } catch (cacheError) {
+            console.warn('Failed to cache user data:', cacheError);
+          }
         } else if (response.status === 404) {
           // User doesn't exist, create them
           const primaryEmail = clerkUser.emailAddresses[0]?.emailAddress;
@@ -110,11 +145,12 @@ export function useUser() {
             const data = await createResponse.json();
             setUser(data.user);
             
-            // Cache the new user data
+            // Cache the new user data with clerk ID
             try {
               localStorage.setItem('user-data', JSON.stringify({
                 data: data.user,
-                timestamp: Date.now()
+                timestamp: Date.now(),
+                clerkId: clerkUser.id
               }));
             } catch {}
           } else {
