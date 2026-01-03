@@ -290,14 +290,16 @@ export function useAIChat({
             console.log(`   Streaming to draft: ${streamingToDraft}`);
             
             // Only call draft completion if it's actually a draft (not a follow-up question)
-            // Note: We do NOT clear the message content here - the Create page will 
-            // handle showing CTA instead of content for draft/edit intent messages
+            // IMPORTANT: Store the actual draft content in the message for conversation memory
+            // The Create page will handle showing CTA buttons, but we need the content
+            // in the message so the AI has context for follow-up requests like "shorten the post"
             if (streamingToDraft && !isFollowUpQuestion && onDraftStreamComplete) {
-              // Just clear the streaming progress flag (keep content for the CTA)
+              // Clear streaming flag AND store actual draft content in the message
+              // This is critical for AI memory - without this, the AI won't know what "the post" is
               setMessages((prev) =>
                 prev.map((msg) =>
                   msg.id === assistantMessageId
-                    ? { ...msg, isStreamingProgress: false }
+                    ? { ...msg, content: fullText, isStreamingProgress: false, draftContent: fullText }
                     : msg
                 )
               );

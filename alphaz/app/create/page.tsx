@@ -1481,17 +1481,21 @@ export default function Create({ threadId, initialDraftId, initialVersionId }: C
         threadIdForMessage = thread.id;
         activeThreadIdRef.current = thread.id;
         // Persist user message to the new thread (pass threadId directly)
-        appendMessage('user', messageToSend, undefined, thread.id).catch(err => 
-          console.error('Failed to persist user message:', err)
-        );
+        try {
+          await appendMessage('user', messageToSend, undefined, thread.id);
+        } catch (err) {
+          console.error('Failed to persist user message:', err);
+        }
         // Update URL without causing navigation/reload (shallow update)
         window.history.replaceState(null, '', `/create/${thread.id}`);
       }
     } else if (threadIdForMessage) {
       // Persist user message to existing thread
-      appendMessage('user', messageToSend, undefined, threadIdForMessage).catch(err => 
-        console.error('Failed to persist user message:', err)
-      );
+      try {
+        await appendMessage('user', messageToSend, undefined, threadIdForMessage);
+      } catch (err) {
+        console.error('Failed to persist user message:', err);
+      }
     }
     
     // Trigger transition animation if this is the first message
@@ -1902,10 +1906,13 @@ export default function Create({ threadId, initialDraftId, initialVersionId }: C
         
         if (thread) {
           activeThreadIdRef.current = thread.id;
-          // Persist user message to the new thread
-          appendMessage('user', checkinPrompt, undefined, thread.id).catch(err => 
-            console.error('Failed to persist user message:', err)
-          );
+          // Persist user message to the new thread - await to ensure it's saved
+          try {
+            await appendMessage('user', checkinPrompt, undefined, thread.id);
+            console.log('✅ User message persisted for check-in draft');
+          } catch (err) {
+            console.error('Failed to persist user message:', err);
+          }
           // Update URL without causing navigation/reload
           window.history.replaceState(null, '', `/create/${thread.id}`);
           
