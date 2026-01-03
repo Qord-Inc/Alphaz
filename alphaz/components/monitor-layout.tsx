@@ -7,6 +7,7 @@ import { Eye, Users, Heart, TrendingUp, MessageCircle, Share2, RefreshCw } from 
 import { SimpleDropdown } from "@/components/ui/simple-dropdown"
 import { useUser } from "@clerk/nextjs"
 import { useOrganization } from "@/contexts/OrganizationContext"
+import { useLinkedInGate } from "@/components/linkedin-gate"
 import { OrganizationPosts } from "./organization-posts"
 import { syncToVectorDB, shouldSyncToVectorDB } from "@/lib/syncToVectorDB"
 
@@ -198,6 +199,7 @@ interface DashboardData {
 export function MonitorLayout() {
   const { user } = useUser()
   const { selectedOrganization, isPersonalProfile } = useOrganization()
+  const { isLinkedInConnected, isLoading: isLinkedInLoading, showConnectModal } = useLinkedInGate()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
@@ -223,8 +225,17 @@ export function MonitorLayout() {
     { value: "1y", label: "Last 1 yr" },
   ]
 
+  // Show LinkedIn connect modal for personal profiles without LinkedIn connection
+  // Wait until loading is complete to avoid showing popup during OAuth redirect
   useEffect(() => {
-    if (!user?.id) {
+    if (!isLinkedInLoading && isPersonalProfile && !isLinkedInConnected) {
+      showConnectModal()
+    }
+  }, [isPersonalProfile, isLinkedInConnected, isLinkedInLoading, showConnectModal])
+
+  useEffect(() => {
+    // For personal profiles, require LinkedIn connection to fetch analytics
+    if (!user?.id || (isPersonalProfile && !isLinkedInConnected)) {
       setLoading(false)
       return
     }
@@ -354,7 +365,7 @@ export function MonitorLayout() {
     }
 
     fetchDashboard()
-  }, [user?.id, selectedRange, selectedOrganization?.id, isPersonalProfile])
+  }, [user?.id, selectedRange, selectedOrganization?.id, isPersonalProfile, isLinkedInConnected])
 
   // Function to refresh data (clear cache and refetch)
   const refreshData = async () => {
@@ -503,6 +514,53 @@ export function MonitorLayout() {
       </div>
       
       <main className="flex-1 overflow-auto p-6">
+        {/* Skeleton State for LinkedIn not connected */}
+        {isPersonalProfile && !isLinkedInConnected ? (
+          <div className="space-y-8">
+            {/* Skeleton Metrics Cards */}
+            <div>
+              <div className="h-7 w-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse mb-4"></div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="bg-white dark:bg-gray-800 rounded-lg border p-6 space-y-3">
+                    <div className="h-4 w-24 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+                    <div className="h-8 w-16 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+                    <div className="h-3 w-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            {/* Skeleton Chart */}
+            <div>
+              <div className="h-7 w-40 bg-gray-200 dark:bg-gray-700 rounded animate-pulse mb-4"></div>
+              <div className="bg-white dark:bg-gray-800 rounded-lg border p-6">
+                <div className="h-64 bg-gray-100 dark:bg-gray-700 rounded animate-pulse"></div>
+              </div>
+            </div>
+            
+            {/* Skeleton Demographics */}
+            <div>
+              <div className="h-7 w-36 bg-gray-200 dark:bg-gray-700 rounded animate-pulse mb-4"></div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className="bg-white dark:bg-gray-800 rounded-lg border p-6 space-y-4">
+                    <div className="h-5 w-28 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+                    <div className="space-y-2">
+                      {[1, 2, 3].map((j) => (
+                        <div key={j} className="flex justify-between items-center">
+                          <div className="h-4 w-24 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+                          <div className="h-4 w-12 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
         {/* Error State */}
         {error === 'LinkedIn not connected' && (
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
@@ -1020,6 +1078,8 @@ export function MonitorLayout() {
             </div>
           )}
         </div>
+          </>
+        )}
       </main>
     </div>
   )

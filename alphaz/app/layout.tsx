@@ -5,6 +5,7 @@ import { UserSync } from "@/components/user-sync";
 import { OrganizationProvider } from "@/contexts/OrganizationContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { Toaster } from "@/components/ui/toaster";
+import { Providers } from "@/components/providers";
 import "./globals.css";
 import { PostHogProvider } from '@/contexts/PostHogContext';
 
@@ -56,9 +57,11 @@ export default function RootLayout({
           <ThemeProvider>
             <PostHogProvider>
               <UserSync>
-                <OrganizationProvider>
-                  {children}
-                </OrganizationProvider>
+                <Providers>
+                  <OrganizationProvider>
+                    {children}
+                  </OrganizationProvider>
+                </Providers>
               </UserSync>
             </PostHogProvider>
             <Toaster />

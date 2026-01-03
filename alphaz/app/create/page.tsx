@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { useAIChat } from "@/hooks/useAIChat";
 import { useUser } from "@/hooks/useUser";
+import { useLinkedInGate } from "@/components/linkedin-gate";
 import { MarkdownMessage } from "@/components/markdown-message";
 import { DraftPanel, Draft } from "@/components/draft-panel";
 import { UploadedImage } from "@/components/linkedin-post-preview";
@@ -556,6 +557,7 @@ export default function Create({ threadId, initialDraftId, initialVersionId }: C
   const { selectedOrganization, isPersonalProfile } = useOrganization();
   const { user } = useUser();
   const { user: clerkUser } = useClerkUser();
+  const { requireLinkedIn, isLinkedInConnected } = useLinkedInGate();
   
   // Personal context for personal accounts
   const [personalContext, setPersonalContext] = useState<any>(null);
@@ -681,7 +683,8 @@ export default function Create({ threadId, initialDraftId, initialVersionId }: C
   } = useThreads({
     userId: clerkUser?.id,
     organizationId: selectedOrganization?.id,
-    enabled: !!clerkUser?.id, // Enable for both personal and org accounts
+    // For personal accounts, require LinkedIn connection to load threads
+    enabled: !!clerkUser?.id && (isPersonalProfile ? isLinkedInConnected : true),
   });
 
   // Load thread from URL on initial mount
@@ -1464,9 +1467,9 @@ export default function Create({ threadId, initialDraftId, initialVersionId }: C
   }, []);
 
   /**
-   * Handle sending a message (memoized to prevent re-creation)
+   * Handle sending a message (internal, after LinkedIn check)
    */
-  const handleSendMessage = useCallback(async () => {
+  const handleSendMessageInternal = useCallback(async () => {
     if (!inputValue.trim() || isLoading) return;
 
     const messageToSend = inputValue;
@@ -1544,6 +1547,13 @@ export default function Create({ threadId, initialDraftId, initialVersionId }: C
     setAttachedFiles([]); // Clear attachments after sending
     await sendMessage(fullMessage, displayMessage);
   }, [inputValue, isLoading, sendMessage, messages.length, isDraftMode, messages, currentThread, newThread, appendMessage, drafts.length, attachedFiles]);
+
+  /**
+   * Handle sending a message - wrapped with LinkedIn check
+   */
+  const handleSendMessage = useCallback(() => {
+    requireLinkedIn(handleSendMessageInternal);
+  }, [requireLinkedIn, handleSendMessageInternal]);
 
   /**
    * Handle keyboard shortcut (Enter to send) - memoized

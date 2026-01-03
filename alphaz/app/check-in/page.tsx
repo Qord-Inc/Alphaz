@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card"
 import { useOrganization } from "@/contexts/OrganizationContext"
 import { useUser } from "@/hooks/useUser"
 import { AppLayout } from "@/components/app-layout"
+import { useLinkedInGate } from "@/components/linkedin-gate"
 import { 
   Loader2, 
   Sparkles, 
@@ -57,6 +58,7 @@ export default function CheckInPage() {
   const router = useRouter()
   const { isPersonalProfile } = useOrganization()
   const { user, loading: userLoading } = useUser()
+  const { requireLinkedIn, isLinkedInConnected } = useLinkedInGate()
 
   // Call state
   const [callStatus, setCallStatus] = useState<CallStatus>('idle')
@@ -89,9 +91,9 @@ export default function CheckInPage() {
 
   const clerkUserId = user?.clerk_user_id
 
-  // Check status on mount
+  // Check status on mount (only if LinkedIn is connected)
   useEffect(() => {
-    if (!clerkUserId || !isPersonalProfile) return
+    if (!clerkUserId || !isPersonalProfile || !isLinkedInConnected) return
     
     const checkStatus = async () => {
       try {
@@ -118,7 +120,7 @@ export default function CheckInPage() {
     }
     
     checkStatus()
-  }, [clerkUserId, isPersonalProfile])
+  }, [clerkUserId, isPersonalProfile, isLinkedInConnected])
 
   // Default to most recent history item when available
   useEffect(() => {
@@ -213,7 +215,7 @@ export default function CheckInPage() {
     }
   }, [clerkUserId, transcript])
 
-  const startCall = async () => {
+  const startCallInternal = async () => {
     if (!clerkUserId) return
     
     setCallStatus('connecting')
@@ -421,6 +423,11 @@ export default function CheckInPage() {
       setCallStatus('error')
       cleanupCall()
     }
+  }
+
+  // Wrap startCall with LinkedIn requirement check
+  const startCall = () => {
+    requireLinkedIn(startCallInternal)
   }
 
   const endCall = async () => {

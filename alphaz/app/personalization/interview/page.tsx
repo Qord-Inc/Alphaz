@@ -6,6 +6,7 @@ import { AppLayout } from "@/components/app-layout"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { useUser } from "@/hooks/useUser"
+import { useLinkedInGate } from "@/components/linkedin-gate"
 import { Mic, MicOff, Volume2, Loader2, SkipForward, ChevronRight, CheckCircle2, Pencil, X, Check } from "lucide-react"
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"
@@ -23,6 +24,7 @@ export default function PersonaInterviewPage() {
   const searchParams = useSearchParams()
   const retakeQuestionId = searchParams.get('retake')
   const { user, loading: userLoading } = useUser()
+  const { requireLinkedIn, isLinkedInConnected } = useLinkedInGate()
   const [questions, setQuestions] = useState<Question[]>([])
   const [questionQueue, setQuestionQueue] = useState<number[]>([]) // Queue of question IDs to ask
   const [interviewState, setInterviewState] = useState<InterviewState>('ready')
@@ -52,7 +54,7 @@ export default function PersonaInterviewPage() {
 
   // Load questions on mount (but don't start TTS yet)
   useEffect(() => {
-    if (!clerkUserId) return
+    if (!clerkUserId || !isLinkedInConnected) return
 
     const loadQuestions = async () => {
       try {
@@ -128,11 +130,11 @@ export default function PersonaInterviewPage() {
     }
 
     loadQuestions()
-  }, [clerkUserId, retakeQuestionId])
+  }, [clerkUserId, retakeQuestionId, isLinkedInConnected])
 
   // Fetch user context when we have 6+ answered questions
   useEffect(() => {
-    if (!clerkUserId || answeredCount < 6) return
+    if (!clerkUserId || answeredCount < 6 || !isLinkedInConnected) return
 
     const fetchContext = async () => {
       try {
@@ -150,7 +152,7 @@ export default function PersonaInterviewPage() {
     }
 
     fetchContext()
-  }, [clerkUserId, answeredCount])
+  }, [clerkUserId, answeredCount, isLinkedInConnected])
 
   // Play AI question when question changes (only after interview started)
   useEffect(() => {
@@ -441,8 +443,13 @@ export default function PersonaInterviewPage() {
   }
 
   // Start the interview (user clicks button, unlocking audio autoplay)
-  const startInterview = () => {
+  const startInterviewInternal = () => {
     setInterviewState('idle')  // This triggers the useEffect to play first question
+  }
+
+  // Wrap with LinkedIn requirement check
+  const startInterview = () => {
+    requireLinkedIn(startInterviewInternal)
   }
 
   if (userLoading) {
