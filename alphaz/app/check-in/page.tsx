@@ -303,8 +303,17 @@ export default function CheckInPage() {
           type: 'response.create',
           response: {
             modalities: ['audio', 'text'],
-            instructions: `Start the call yourself (user hasn't spoken yet). Keep it casual, calm, and unhurried. Ask EXACTLY ONE short question per turn—never stack or offer multiple choices in the same message. Open with: "I'll kick us off—share a quick highlight from today." After they answer, continue one-by-one: what made it stand out; any challenges or lessons; what they're excited to work on next; one LinkedIn-worthy idea. Brief acknowledgements only. Do NOT ask them to end the call—the system will wrap up.`
-          }
+            instructions: `Start the call yourself (user hasn't spoken yet). Keep it casual, warm, and unhurried.
+        Have a real conversation, not a checklist.
+
+        Rules:
+        - Ask exactly ONE short question per turn. Never stack questions or offer multiple options.
+        - React to what they actually said, then ask a simple follow-up that fits the moment.
+        - If something sounds important, gently go one level deeper with “What made that stand out?” or “What was hard about it?”
+        - If nothing stands out, keep it light and ask what they’re focused on today.
+        - Do NOT mention LinkedIn or posting. Do NOT ask them to end the call. The system will wrap up.
+        - Keep responses short (1–2 sentences) and human (brief empathy is fine).`
+                  }
         }))
       }
 
