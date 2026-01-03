@@ -103,6 +103,13 @@ export function Sidebar({ className }: SidebarProps) {
       })
       
       if (response.ok) {
+        // Clear all cached data on disconnect
+        try {
+          localStorage.removeItem(`company-pages-${clerkUser.id}`);
+          localStorage.removeItem('user-data'); // Clear user cache so it refetches with linkedin_connected: false
+          console.log('🗑️ Cleared user and company pages cache on disconnect');
+        } catch {}
+        
         // Refresh the page to update the user state
         window.location.reload()
       } else {
@@ -129,64 +136,73 @@ export function Sidebar({ className }: SidebarProps) {
     }
   }, [])
 
-  // Fetch company pages when LinkedIn is connected
+  // Fetch company pages when LinkedIn is connected - only once per session
+  // Cache persists until LinkedIn is disconnected or 24 hours pass
   useEffect(() => {
     const fetchCompanyPages = async () => {
-      if (user?.linkedin_connected && user?.clerk_user_id) {
-        console.log('Fetching company pages for user:', user.clerk_user_id)
+      if (!user?.linkedin_connected || !user?.clerk_user_id) {
+        setCompanyPages([]);
+        return;
+      }
+
+      const cacheKey = `company-pages-${user.clerk_user_id}`;
+      
+      // Try to load from cache first
+      try {
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          const { data, timestamp } = JSON.parse(cached);
+          // Use cache if less than 24 hours old (company pages rarely change)
+          const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+          if (Date.now() - timestamp < CACHE_TTL && Array.isArray(data) && data.length > 0) {
+            console.log('📦 Using cached company pages (valid cache)');
+            setCompanyPages(data);
+            return; // Don't fetch if we have valid cache
+          }
+        }
+      } catch (e) {
+        console.warn('Error reading company pages cache:', e);
+      }
+      
+      // No valid cache - fetch from API
+      console.log('🔄 Fetching company pages from API (no valid cache)');
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
         
-        // Try to load cached company pages immediately
-        try {
-          const cached = localStorage.getItem(`company-pages-${user.clerk_user_id}`);
-          if (cached) {
-            const { data, timestamp } = JSON.parse(cached);
-            // Use cache if less than 10 minutes old
-            if (Date.now() - timestamp < 10 * 60 * 1000) {
-              console.log('Using cached company pages');
-              setCompanyPages(data);
-            }
-          }
-        } catch {}
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/api/linkedin/company-pages/${user.clerk_user_id}`,
+          { signal: controller.signal }
+        );
         
-        // Fetch fresh data in background
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 8000);
+        clearTimeout(timeoutId);
+        
+        if (response.ok) {
+          const data = await response.json();
+          const pages = data.companyPages || [];
+          setCompanyPages(pages);
           
-          const response = await fetch(
-            `${process.env.NEXT_PUBLIC_API_URL}/api/linkedin/company-pages/${user.clerk_user_id}`,
-            { signal: controller.signal }
-          );
-          
-          clearTimeout(timeoutId);
-          
-          if (response.ok) {
-            const data = await response.json();
-            console.log('Company pages response:', data);
-            const pages = data.companyPages || [];
-            setCompanyPages(pages);
-            
-            // Cache the company pages
-            try {
-              localStorage.setItem(`company-pages-${user.clerk_user_id}`, JSON.stringify({
-                data: pages,
-                timestamp: Date.now()
-              }));
-            } catch {}
-          } else {
-            console.error('Failed to fetch company pages:', response.status, response.statusText);
-          }
-        } catch (error) {
-          if (error instanceof Error && error.name === 'AbortError') {
-            console.warn('Company pages request timed out, using cached data');
-          } else {
-            console.error('Error fetching company pages:', error);
-          }
+          // Cache the company pages with timestamp
+          try {
+            localStorage.setItem(cacheKey, JSON.stringify({
+              data: pages,
+              timestamp: Date.now()
+            }));
+            console.log('💾 Cached company pages');
+          } catch {}
+        } else {
+          console.error('Failed to fetch company pages:', response.status, response.statusText);
+        }
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          console.warn('Company pages request timed out');
+        } else {
+          console.error('Error fetching company pages:', error);
         }
       }
     }
 
-    fetchCompanyPages()
+    fetchCompanyPages();
   }, [user?.linkedin_connected, user?.clerk_user_id])
 
   // Sync sidebar state with organization context on mount

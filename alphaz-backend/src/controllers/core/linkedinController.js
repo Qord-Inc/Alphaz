@@ -385,7 +385,6 @@ async function fetchUserCompanyPages(clerkUserId, accessToken) {
             }
           });
           company = orgResponse.data;
-          console.log(`Successfully fetched details for ${orgType} ${orgId}`, JSON.stringify(company.logoV2, null, 2));
         } catch (detailError) {
           console.log(`Could not fetch details for ${orgType} ${orgId}: ${detailError.message}`);
           // Try the organization endpoint as fallback if brand endpoint fails

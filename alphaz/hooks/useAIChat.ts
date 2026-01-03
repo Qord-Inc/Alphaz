@@ -3,6 +3,43 @@
 import { useState, useCallback } from 'react';
 
 /**
+ * Clean AI response by removing common hallucination artifacts
+ * These patterns sometimes appear at the end of AI-generated content
+ */
+function cleanAIResponse(text: string): string {
+  let cleaned = text;
+  
+  // Remove "End File#" and everything after it (common AI artifact)
+  const endFileIndex = cleaned.indexOf('End File#');
+  if (endFileIndex !== -1) {
+    cleaned = cleaned.substring(0, endFileIndex);
+  }
+  
+  // Remove "# Conversation:" and everything after it
+  const conversationIndex = cleaned.indexOf('# Conversation:');
+  if (conversationIndex !== -1) {
+    cleaned = cleaned.substring(0, conversationIndex);
+  }
+  
+  // Remove "## User Profile" and everything after it  
+  const userProfileIndex = cleaned.indexOf('## User Profile');
+  if (userProfileIndex !== -1) {
+    cleaned = cleaned.substring(0, userProfileIndex);
+  }
+  
+  // Remove "## Conversation History" and everything after it
+  const historyIndex = cleaned.indexOf('## Conversation History');
+  if (historyIndex !== -1) {
+    cleaned = cleaned.substring(0, historyIndex);
+  }
+  
+  // Clean up trailing whitespace and excessive newlines
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
+  
+  return cleaned;
+}
+
+/**
  * Type definitions for chat messages
  */
 export interface ChatMessage {
@@ -222,6 +259,10 @@ export function useAIChat({
             console.log(`\n✅ [STREAM COMPLETE]`);
             console.log(`   Total chunks received: ${chunkCount}`);
             console.log(`   Final message length: ${fullText.length} chars`);
+            
+            // Clean up common AI hallucination artifacts (file paths, git diffs, etc.)
+            fullText = cleanAIResponse(fullText);
+            console.log(`   Cleaned message length: ${fullText.length} chars`);
             
             // For draft/edit intents, use AI to classify if response is actual draft or follow-up question
             if (initialIsDraftIntent && fullText.trim()) {
