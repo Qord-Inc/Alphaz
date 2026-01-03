@@ -5,6 +5,7 @@ import { AppLayout } from "@/components/app-layout"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { useUser } from "@/hooks/useUser"
+import { useLinkedInGate } from "@/components/linkedin-gate"
 import { Sparkles, Timer, Volume2, MessageSquare, CheckCircle2, SkipForward } from "lucide-react"
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"
@@ -73,6 +74,7 @@ export default function PersonalizationPage() {
 
 function UserProfileTab() {
   const { user } = useUser()
+  const { isLinkedInConnected, requireLinkedIn } = useLinkedInGate()
   const [personaData, setPersonaData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
@@ -127,9 +129,12 @@ function UserProfileTab() {
     }
   ]
 
-  // Load persona data and check/create context
+  // Load persona data and check/create context (only if LinkedIn is connected)
   useEffect(() => {
-    if (!user?.clerk_user_id) return
+    if (!user?.clerk_user_id || !isLinkedInConnected) {
+      setLoading(false)
+      return
+    }
 
     const loadPersonaData = async () => {
       try {
@@ -158,7 +163,7 @@ function UserProfileTab() {
     }
 
     loadPersonaData()
-  }, [user?.clerk_user_id])
+  }, [user?.clerk_user_id, isLinkedInConnected])
 
   // Calculate status for each question
   const getQuestionStatus = (questionId: number) => {
@@ -240,7 +245,7 @@ function UserProfileTab() {
         <div className="space-y-3">
           <Button 
             size="lg"
-            onClick={() => window.location.href = '/personalization/interview'}
+            onClick={() => requireLinkedIn(() => window.location.href = '/personalization/interview')}
             className={`w-full text-white text-lg py-6 rounded-xl shadow-lg ${
               answeredCount === 8 
                 ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/30'

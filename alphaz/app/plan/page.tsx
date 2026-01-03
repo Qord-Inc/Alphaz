@@ -4,9 +4,10 @@ import { AppLayout } from "@/components/app-layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Calendar as CalendarIcon, List, Clock, CheckCircle2, Trash2, Edit2, ExternalLink, ChevronLeft, ChevronRight, Linkedin, Loader2 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useUser } from "@/hooks/useUser";
 import { useOrganization } from "@/contexts/OrganizationContext";
+import { useLinkedInGate } from "@/components/linkedin-gate";
 import { format } from "date-fns";
 import {
   Dialog,
@@ -41,6 +42,7 @@ interface ScheduledDraft {
 export default function Plan() {
   const { user, loading: userLoading } = useUser();
   const { selectedOrganization, isPersonalProfile } = useOrganization();
+  const { requireLinkedIn, isLinkedInConnected } = useLinkedInGate();
   const [view, setView] = useState<'list' | 'calendar'>('calendar');
   const [drafts, setDrafts] = useState<ScheduledDraft[]>([]);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
@@ -71,14 +73,15 @@ export default function Plan() {
       return;
     }
     
-    if (user?.clerk_user_id) {
+    // For personal profiles, require LinkedIn connection to fetch drafts
+    if (user?.clerk_user_id && (isPersonalProfile ? isLinkedInConnected : true)) {
       fetchDrafts();
     } else {
-      // User is not authenticated or doesn't exist
+      // User is not authenticated, doesn't exist, or LinkedIn not connected
       setLoading(false);
       setDrafts([]);
     }
-  }, [user?.clerk_user_id, selectedOrganization, isPersonalProfile, userLoading]);
+  }, [user?.clerk_user_id, selectedOrganization, isPersonalProfile, userLoading, isLinkedInConnected]);
 
   const fetchDrafts = async () => {
     if (!user?.clerk_user_id) {
@@ -166,10 +169,15 @@ export default function Plan() {
     setIsEditDialogOpen(true);
   };
 
-  const handlePublishClick = (draft: ScheduledDraft) => {
+  const handlePublishClickInternal = useCallback((draft: ScheduledDraft) => {
     setDraftToPublish(draft);
     setIsPublishDialogOpen(true);
-  };
+  }, []);
+
+  // Wrap publish click with LinkedIn check
+  const handlePublishClick = useCallback((draft: ScheduledDraft) => {
+    requireLinkedIn(() => handlePublishClickInternal(draft));
+  }, [requireLinkedIn, handlePublishClickInternal]);
 
   const handleConfirmPublish = async () => {
     if (!draftToPublish) return;
@@ -445,7 +453,34 @@ export default function Plan() {
         </div>
         
         <main className="flex-1 overflow-auto p-6">
-          {loading ? (
+          {/* LinkedIn Connection CTA for Personal Profiles */}
+          {isPersonalProfile && !isLinkedInConnected ? (
+            <div className="flex items-center justify-center h-64">
+              <Card className="max-w-md w-full">
+                <CardContent className="py-8 text-center space-y-4">
+                  <div className="mx-auto w-12 h-12 rounded-full bg-[#0A66C2]/10 flex items-center justify-center">
+                    <Linkedin className="h-6 w-6 text-[#0A66C2]" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-lg mb-1">Connect LinkedIn to Plan Posts</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Connect your LinkedIn account to plan and manage your content calendar.
+                    </p>
+                  </div>
+                  <Button
+                    onClick={() => {
+                      const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+                      window.location.href = `${API_BASE_URL}/api/linkedin/auth?returnUrl=${encodeURIComponent(window.location.href)}`;
+                    }}
+                    className="bg-[#0A66C2] hover:bg-[#004182] text-white"
+                  >
+                    <Linkedin className="h-4 w-4 mr-2" />
+                    Connect LinkedIn
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
+          ) : loading ? (
             <div className="flex items-center justify-center h-64">
               <div className="text-muted-foreground">Loading drafts...</div>
             </div>
